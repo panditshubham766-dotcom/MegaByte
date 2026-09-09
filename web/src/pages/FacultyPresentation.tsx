@@ -56,15 +56,29 @@ export default function FacultyPresentation() {
           <div className={`text-6xl md:text-8xl font-mono font-bold tabular-nums ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
             {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
           </div>
+          <div className="mt-8">
+            <button
+              onClick={() => navigate(`/faculty/review/${session.id}`)}
+              className="px-8 py-3 bg-blue-600/20 border border-blue-500 text-blue-400 font-bold rounded-full text-lg hover:bg-blue-600 hover:text-white transition-colors"
+            >
+              Live Review
+            </button>
+          </div>
         </div>
 
         {timeLeft === 0 && (
-          <div className="mt-12">
+          <div className="mt-12 space-x-4">
             <button
               onClick={() => navigate('/faculty/dashboard')}
               className="px-8 py-4 bg-white text-black font-bold rounded-full text-xl hover:bg-gray-200 transition-colors"
             >
               Return to Dashboard
+            </button>
+            <button
+              onClick={() => navigate(`/faculty/review/${session.id}`)}
+              className="px-8 py-4 bg-blue-600 text-white font-bold rounded-full text-xl hover:bg-blue-700 transition-colors"
+            >
+              Review Submissions
             </button>
           </div>
         )}

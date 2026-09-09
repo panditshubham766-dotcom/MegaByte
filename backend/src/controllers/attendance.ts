@@ -57,3 +57,61 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+export const getPendingSubmissions = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const facultyId = req.user?.id;
+        const { sessionId } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        // Fetch pending records for this session, joined with users
+        const pendingRes = await pool.query(
+            `SELECT a.id as record_id, u.name, u.student_id, a.photo_base64, a.status 
+             FROM attendance_records a
+             JOIN users u ON a.student_id = u.id
+             WHERE a.session_id = $1 AND a.status = 'PENDING'`,
+            [sessionId]
+        );
+
+        res.status(200).json(pendingRes.rows);
+    } catch (error) {
+        console.error('Error fetching pending submissions:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const reviewSubmission = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const facultyId = req.user?.id;
+        const { record_id, status } = req.body;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        if (status !== 'APPROVED' && status !== 'REJECTED') {
+            res.status(400).json({ message: 'Status must be APPROVED or REJECTED' });
+            return;
+        }
+
+        const updateRes = await pool.query(
+            `UPDATE attendance_records SET status = $1 WHERE id = $2 RETURNING *`,
+            [status, record_id]
+        );
+
+        if (updateRes.rowCount === 0) {
+            res.status(404).json({ message: 'Record not found' });
+            return;
+        }
+
+        res.status(200).json({ message: 'Submission reviewed successfully', record: updateRes.rows[0] });
+    } catch (error) {
+        console.error('Error reviewing submission:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
