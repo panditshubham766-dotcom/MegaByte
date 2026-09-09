@@ -50,6 +50,7 @@ CREATE TABLE attendance_records (
     session_id UUID NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
     student_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     status VARCHAR(50) NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    photo_base64 TEXT,
     CONSTRAINT unique_session_student UNIQUE (session_id, student_id)
 );
 

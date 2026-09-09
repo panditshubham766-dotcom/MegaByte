@@ -34,7 +34,7 @@ export default function Login() {
       if (data.user.role === 'FACULTY') {
         navigate('/faculty/dashboard');
       } else {
-        navigate('/student/dashboard');
+        navigate('/student/capture');
       }
     } catch (err: any) {
       setError(err.message);
