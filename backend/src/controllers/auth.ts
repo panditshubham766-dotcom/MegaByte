@@ -48,17 +48,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             );
 
             if (deviceResult.rows.length === 0) {
-                // Register new device
+                // Register new device (UPSERT to avoid conflicts on re-registration)
                 await pool.query(
-                    'INSERT INTO student_devices (student_id, device_uuid) VALUES ($1, $2)',
+                    'INSERT INTO student_devices (student_id, device_uuid) VALUES ($1, $2) ON CONFLICT (student_id, device_uuid) DO NOTHING',
                     [user.id, device_uuid]
                 );
             } else {
-                // Verify existing device matches
+                // Verify existing device matches; if not, update to new device (re-registration)
                 const activeDevice = deviceResult.rows[0];
                 if (activeDevice.device_uuid !== device_uuid) {
-                    res.status(403).json({ message: 'Unauthorized device: Attendance must be submitted from your registered phone' });
-                    return;
+                    // Update the registered device to the new one
+                    await pool.query(
+                        'UPDATE student_devices SET device_uuid = $1 WHERE student_id = $2 AND is_active = true',
+                        [device_uuid, user.id]
+                    );
                 }
             }
         }
@@ -71,7 +74,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             student_id: user.student_id,
         };
 
-        const expiresIn = user.role === 'FACULTY' ? '24h' : '10m';
+        const expiresIn = user.role === 'FACULTY' ? '24h' : '2h';
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn });
 
         res.json({ token, user: payload });
