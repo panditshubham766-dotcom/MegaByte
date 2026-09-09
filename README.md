@@ -1,1 +1,1 @@
-Buildingan attendance tracker
+Building an attendance tracker
