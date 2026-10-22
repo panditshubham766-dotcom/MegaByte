@@ -1,9 +1,12 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
+import { markExpired } from './session';
 
 export const submitAttendance = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
+        await markExpired();
+
         const studentId = req.user?.id;
         if (!studentId) {
             res.status(401).json({ message: 'Unauthorized' });
@@ -60,6 +63,8 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
 
 export const getPendingSubmissions = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
+        await markExpired();
+
         const facultyId = req.user?.id;
         const { sessionId } = req.params;
 
@@ -86,6 +91,8 @@ export const getPendingSubmissions = async (req: AuthRequest, res: Response): Pr
 
 export const reviewSubmission = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
+        await markExpired();
+
         const facultyId = req.user?.id;
         const { record_id, status } = req.body;
 

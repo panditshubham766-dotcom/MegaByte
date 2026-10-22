@@ -2,6 +2,16 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
 
+export const markExpired = async (): Promise<string[]> => {
+    const res = await pool.query(
+        `UPDATE attendance_sessions
+         SET status = 'EXPIRED', ended_at = expires_at
+         WHERE status = 'ACTIVE' AND expires_at <= NOW()
+         RETURNING id`
+    );
+    return res.rows.map(row => row.id);
+};
+
 const generateRandomCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
@@ -13,11 +23,28 @@ const generateRandomCode = () => {
 
 export const createSession = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
+        await markExpired();
+
         const { durationMinutes } = req.body;
         const facultyId = req.user?.id;
 
         if (!facultyId) {
             res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        // Return 409 if faculty already has an ACTIVE unexpired session
+        const activeRes = await pool.query(
+            `SELECT id FROM attendance_sessions 
+             WHERE faculty_id = $1 AND status = 'ACTIVE' AND expires_at > NOW() 
+             LIMIT 1`,
+            [facultyId]
+        );
+        if (activeRes.rowCount && activeRes.rowCount > 0) {
+            res.status(409).json({ 
+                message: 'Faculty already has an active session', 
+                sessionId: activeRes.rows[0].id 
+            });
             return;
         }
 
@@ -59,13 +86,132 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
             `INSERT INTO attendance_sessions 
             (faculty_id, subject_id, class_id, random_code, status, expires_at) 
             VALUES ($1, $2, $3, $4, $5, $6) 
-            RETURNING *`,
+            RETURNING id, random_code, status, expires_at, ended_at, NOW() as server_now`,
             [facultyId, subjectId, classId, randomCode, 'ACTIVE', expiresAt]
         );
 
         res.status(201).json(insertSession.rows[0]);
     } catch (error) {
         console.error('Error creating session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getActiveSession = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const sessionRes = await pool.query(
+            `SELECT id, random_code, status, expires_at, ended_at, NOW() as server_now 
+             FROM attendance_sessions 
+             WHERE faculty_id = $1 AND status = 'ACTIVE' AND expires_at > NOW() 
+             ORDER BY created_at DESC LIMIT 1`,
+            [facultyId]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'No active session found' });
+            return;
+        }
+
+        res.status(200).json(sessionRes.rows[0]);
+    } catch (error) {
+        console.error('Error fetching active session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getSessionById = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        const { id } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const sessionRes = await pool.query(
+            `SELECT id, faculty_id, random_code, status, expires_at, ended_at, NOW() as server_now 
+             FROM attendance_sessions 
+             WHERE id = $1`,
+            [id]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'Session not found' });
+            return;
+        }
+
+        const session = sessionRes.rows[0];
+        if (session.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this session' });
+            return;
+        }
+
+        const { faculty_id, ...data } = session;
+        res.status(200).json(data);
+    } catch (error) {
+        console.error('Error fetching session by id:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const endSession = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        const { id } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const sessionRes = await pool.query(
+            `SELECT id, faculty_id, random_code, status, expires_at, ended_at, NOW() as server_now 
+             FROM attendance_sessions 
+             WHERE id = $1`,
+            [id]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'Session not found' });
+            return;
+        }
+
+        const session = sessionRes.rows[0];
+        if (session.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this session' });
+            return;
+        }
+
+        if (session.status === 'ACTIVE') {
+            const updateRes = await pool.query(
+                `UPDATE attendance_sessions 
+                 SET status = 'ENDED', ended_at = NOW() 
+                 WHERE id = $1 
+                 RETURNING id, random_code, status, expires_at, ended_at, NOW() as server_now`,
+                [id]
+            );
+            res.status(200).json(updateRes.rows[0]);
+            return;
+        }
+
+        // Idempotent: already ENDED or EXPIRED
+        const { faculty_id, ...data } = session;
+        res.status(200).json(data);
+    } catch (error) {
+        console.error('Error ending session:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };

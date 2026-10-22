@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
 import sessionRoutes from './routes/session';
 import attendanceRoutes from './routes/attendance';
+import { markExpired } from './controllers/session';
 
 dotenv.config();
 
@@ -23,6 +24,15 @@ app.get('/health', (req: Request, res: Response) => {
         timestamp: new Date().toISOString()
     });
 });
+
+// Periodic sweep every 5s to mark expired sessions
+setInterval(async () => {
+    try {
+        await markExpired();
+    } catch (error) {
+        console.error('Error in markExpired sweep:', error);
+    }
+}, 5000);
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

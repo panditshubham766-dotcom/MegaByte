@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Check, X, ArrowLeft, RefreshCw } from 'lucide-react';
 
@@ -10,18 +10,55 @@ interface PendingSubmission {
   status: string;
 }
 
+interface SessionInfo {
+  id: string;
+  random_code: string;
+  status: 'ACTIVE' | 'ENDED' | 'EXPIRED';
+  expires_at: string;
+  ended_at?: string | null;
+  server_now: string;
+}
+
 export default function FacultyReview() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { id, sessionId } = useParams<{ id?: string; sessionId?: string }>();
+  const currentSessionId = id || sessionId;
   const navigate = useNavigate();
+
   const [submissions, setSubmissions] = useState<PendingSubmission[]>([]);
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [, setTick] = useState(0);
 
-  const fetchPending = async () => {
+  const serverOffsetRef = useRef<number>(0);
+
+  const fetchSession = useCallback(async () => {
+    if (!currentSessionId) return;
     try {
       const token = localStorage.getItem('token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const response = await fetch(`${API_URL}/api/attendance/session/${sessionId}/pending`, {
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/sessions/${currentSessionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data: SessionInfo = await response.json();
+        setSessionInfo(data);
+        const serverTime = new Date(data.server_now).getTime();
+        serverOffsetRef.current = serverTime - Date.now();
+      }
+    } catch (err) {
+      console.error('Error fetching session info:', err);
+    }
+  }, [currentSessionId]);
+
+  const fetchPending = useCallback(async () => {
+    if (!currentSessionId) return;
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/attendance/session/${currentSessionId}/pending`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -40,16 +77,27 @@ export default function FacultyReview() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentSessionId]);
 
   useEffect(() => {
+    fetchSession();
     fetchPending();
+
     const interval = setInterval(() => {
+      fetchSession();
       fetchPending();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [sessionId]);
+  }, [fetchSession, fetchPending]);
+
+  // Tick every second to update active countdown display
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleReview = async (recordId: string, status: 'APPROVED' | 'REJECTED') => {
     // Optimistic UI update
@@ -57,7 +105,7 @@ export default function FacultyReview() {
     
     try {
       const token = localStorage.getItem('token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const API_URL = import.meta.env.VITE_API_URL || '';
       const response = await fetch(`${API_URL}/api/attendance/review`, {
         method: 'POST',
         headers: {
@@ -77,18 +125,48 @@ export default function FacultyReview() {
     }
   };
 
+  const renderStatusChip = () => {
+    if (!sessionInfo) return null;
+    if (sessionInfo.status === 'ACTIVE') {
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
+      const remainingSec = Math.max(0, Math.floor((new Date(sessionInfo.expires_at).getTime() - estimatedServerNow) / 1000));
+      const mins = Math.floor(remainingSec / 60);
+      const secs = remainingSec % 60;
+      return (
+        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-300 flex items-center">
+          <span className="w-2 h-2 rounded-full bg-green-500 mr-1.5 animate-pulse"></span>
+          ACTIVE • {mins.toString().padStart(2, '0')}:{secs.toString().padStart(2, '0')}
+        </span>
+      );
+    }
+    if (sessionInfo.status === 'EXPIRED') {
+      return (
+        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300">
+          EXPIRED (Time up)
+        </span>
+      );
+    }
+    return (
+      <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-800 border border-gray-300">
+        ENDED (Faculty)
+      </span>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <header className="flex items-center justify-between mb-8">
+        <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
           <div className="flex items-center space-x-4">
             <button
-              onClick={() => navigate('/faculty/dashboard')}
+              onClick={() => navigate(`/session/${currentSessionId}`)}
               className="p-2 bg-white border border-gray-300 rounded-full hover:bg-gray-50 text-gray-600"
+              title="Back to Session Code"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
             <h1 className="text-2xl font-bold text-gray-900">Live Review Dashboard</h1>
+            {renderStatusChip()}
           </div>
           <div className="flex items-center text-gray-500 text-sm bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
             <RefreshCw className="h-4 w-4 mr-2 animate-spin-slow" />

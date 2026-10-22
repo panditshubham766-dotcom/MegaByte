@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Clock, Play } from 'lucide-react';
 
@@ -6,6 +6,28 @@ export default function FacultyDashboard() {
   const [duration, setDuration] = useState(5);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkActiveSession = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const API_URL = import.meta.env.VITE_API_URL || '';
+        const response = await fetch(`${API_URL}/api/sessions/active`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          navigate(`/session/${data.id}`);
+        }
+      } catch (error) {
+        console.error('Error checking active session:', error);
+      }
+    };
+
+    checkActiveSession();
+  }, [navigate]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -17,7 +39,7 @@ export default function FacultyDashboard() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const API_URL = import.meta.env.VITE_API_URL || '';
       const response = await fetch(`${API_URL}/api/sessions/create`, {
         method: 'POST',
         headers: {
@@ -28,15 +50,19 @@ export default function FacultyDashboard() {
       });
 
       const data = await response.json();
+      if (response.status === 409 && data.sessionId) {
+        navigate(`/session/${data.sessionId}`);
+        return;
+      }
       if (!response.ok) {
         throw new Error(data.message || 'Failed to create session');
       }
 
-      // Navigate to presentation view with session data
-      navigate('/faculty/presentation', { state: { session: data } });
-    } catch (error) {
+      // Navigate to code presentation view with session id
+      navigate(`/session/${data.id}`);
+    } catch (error: any) {
       console.error(error);
-      alert('Failed to create session. Check console.');
+      alert(error.message || 'Failed to create session. Check console.');
     } finally {
       setLoading(false);
     }

@@ -42,6 +42,7 @@ CREATE TABLE attendance_sessions (
     random_code VARCHAR(10) NOT NULL,
     status VARCHAR(50) NOT NULL CHECK (status IN ('ACTIVE', 'ENDED', 'EXPIRED')),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
