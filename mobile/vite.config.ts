@@ -9,6 +9,11 @@ export default defineConfig({
   server: {
     host: true, // Listen on all local IPs
     port: 5174,
-    https: true
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      }
+    }
   }
 })
