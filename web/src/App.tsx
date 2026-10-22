@@ -14,8 +14,6 @@ function App() {
         <Route path="/faculty/dashboard" element={<FacultyDashboard />} />
         <Route path="/session/:id" element={<FacultyPresentation />} />
         <Route path="/session/:id/review" element={<FacultyReview />} />
-        <Route path="/faculty/presentation" element={<FacultyPresentation />} />
-        <Route path="/faculty/review/:sessionId" element={<FacultyReview />} />
         <Route path="/student/capture" element={<StudentCapture />} />
       </Routes>
     </Router>

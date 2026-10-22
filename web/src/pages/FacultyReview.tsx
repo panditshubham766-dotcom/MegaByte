@@ -8,6 +8,7 @@ interface PendingSubmission {
   student_id: string;
   photo_base64: string;
   status: string;
+  face_match_score?: number | null;
 }
 
 interface SessionInfo {
@@ -20,8 +21,8 @@ interface SessionInfo {
 }
 
 export default function FacultyReview() {
-  const { id, sessionId } = useParams<{ id?: string; sessionId?: string }>();
-  const currentSessionId = id || sessionId;
+  const { id } = useParams<{ id: string }>();
+  const currentSessionId = id;
   const navigate = useNavigate();
 
   const [submissions, setSubmissions] = useState<PendingSubmission[]>([]);
@@ -208,10 +209,24 @@ export default function FacultyReview() {
                       No Photo
                     </div>
                   )}
+                  {sub.face_match_score !== undefined && sub.face_match_score !== null && (
+                    <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-sm text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow">
+                      Match {Math.round(sub.face_match_score * 100)}%
+                    </div>
+                  )}
                 </div>
                 <div className="p-4 flex-grow flex flex-col">
-                  <h3 className="font-bold text-lg text-gray-900 truncate">{sub.name}</h3>
-                  <p className="text-sm text-gray-500 mb-4 truncate">{sub.student_id || 'No ID Provided'}</p>
+                  <div className="flex items-start justify-between gap-2 mb-4">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-lg text-gray-900 truncate">{sub.name}</h3>
+                      <p className="text-sm text-gray-500 truncate">{sub.student_id || 'No ID Provided'}</p>
+                    </div>
+                    {sub.face_match_score !== undefined && sub.face_match_score !== null && (
+                      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                        Match {Math.round(sub.face_match_score * 100)}%
+                      </span>
+                    )}
+                  </div>
                   
                   <div className="grid grid-cols-2 gap-2 mt-auto">
                     <button

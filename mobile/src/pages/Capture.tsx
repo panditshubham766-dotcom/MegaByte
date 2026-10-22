@@ -94,6 +94,8 @@ export default function StudentCapture() {
       const data = await response.json();
 
       if (!response.ok) {
+        // Keep camera open for retry and clear the captured preview
+        setPhotoBase64(null);
         throw new Error(data.message || 'Failed to submit attendance');
       }
 
@@ -143,15 +145,14 @@ export default function StudentCapture() {
 
         <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
           <div className="relative aspect-[4/3] bg-black">
-            {!photoBase64 ? (
-              <video 
-                ref={videoRef} 
-                autoPlay 
-                playsInline 
-                muted 
-                className="w-full h-full object-cover"
-              />
-            ) : (
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              muted 
+              className={`w-full h-full object-cover ${photoBase64 ? 'hidden' : ''}`}
+            />
+            {photoBase64 && (
               <img 
                 src={photoBase64} 
                 alt="Captured" 
