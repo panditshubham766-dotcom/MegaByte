@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Check, X, ArrowLeft, RefreshCw, Download } from 'lucide-react';
+import { Check, X, ArrowLeft, RefreshCw, Download, Users } from 'lucide-react';
 
 interface PendingSubmission {
   record_id: string;
@@ -221,6 +221,14 @@ export default function FacultyReview() {
             {renderStatusChip()}
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(`/session/${currentSessionId}/attendance`)}
+              className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors"
+              title="View and Edit Attendance Roster"
+            >
+              <Users className="h-4 w-4 mr-1.5" />
+              Attendance Roster
+            </button>
             <button
               onClick={handleDownloadExcel}
               disabled={downloading}

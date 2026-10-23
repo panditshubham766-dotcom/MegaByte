@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, StopCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, StopCircle, RefreshCw, Trash2, X, AlertCircle } from 'lucide-react';
 
 interface SessionData {
   id: string;
@@ -8,6 +8,7 @@ interface SessionData {
   status: 'ACTIVE' | 'ENDED' | 'EXPIRED';
   expires_at: string;
   ended_at?: string | null;
+  created_at?: string | null;
   server_now: string;
 }
 
@@ -20,6 +21,12 @@ export default function FacultyPresentation() {
   const [error, setError] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
+
+  // Delete Modal State & Attendance records count
+  const [attendanceCount, setAttendanceCount] = useState<number>(0);
+  const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [deleteError, setDeleteError] = useState<string>('');
 
   // Store server clock offset: serverTime - clientLocalTime
   const serverOffsetRef = useRef<number>(0);
@@ -63,9 +70,62 @@ export default function FacultyPresentation() {
     }
   }, [id]);
 
+  const fetchAttendanceCount = useCallback(async () => {
+    if (!id) return;
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/sessions/${id}/attendance`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const rows = await response.json();
+        if (Array.isArray(rows)) {
+          const count = rows.filter((r: any) => r.status !== null && r.status !== undefined).length;
+          setAttendanceCount(count);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching attendance count:', err);
+    }
+  }, [id]);
+
+  const handleConfirmDelete = async () => {
+    if (!id) return;
+    setIsDeleting(true);
+    setDeleteError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/sessions/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const resJson = await response.json().catch(() => ({}));
+        throw new Error(resJson.message || 'Failed to delete session');
+      }
+
+      setShowDeleteModal(false);
+      navigate('/faculty/dashboard');
+    } catch (err: any) {
+      console.error('Error deleting session:', err);
+      setDeleteError(err.message || 'Error deleting session');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   useEffect(() => {
     fetchSession();
-  }, [fetchSession]);
+    fetchAttendanceCount();
+  }, [fetchSession, fetchAttendanceCount]);
 
   useEffect(() => {
     if (!session || session.status !== 'ACTIVE') {
@@ -167,6 +227,20 @@ export default function FacultyPresentation() {
         </button>
       </div>
 
+      <div className="absolute top-6 right-6">
+        <button
+          onClick={() => {
+            setDeleteError('');
+            setShowDeleteModal(true);
+          }}
+          className="flex items-center space-x-2 text-red-400 hover:text-red-300 hover:bg-red-950/60 transition-colors bg-red-950/30 border border-red-800/60 px-4 py-2 rounded-full text-sm font-semibold"
+          title="Delete Session"
+        >
+          <Trash2 className="h-4 w-4" />
+          <span>Delete Session</span>
+        </button>
+      </div>
+
       <div className="text-center w-full max-w-4xl my-auto">
         <h1 className="text-2xl md:text-4xl text-gray-400 mb-4 md:mb-6 tracking-wider uppercase">
           Attendance Code
@@ -212,6 +286,16 @@ export default function FacultyPresentation() {
                 <StopCircle className="h-5 w-5 mr-2" />
                 {isEnding ? 'Ending...' : 'End Session'}
               </button>
+              <button
+                onClick={() => {
+                  setDeleteError('');
+                  setShowDeleteModal(true);
+                }}
+                className="flex items-center px-8 py-3 bg-red-900/30 border border-red-600/60 text-red-400 font-bold rounded-full text-lg hover:bg-red-600 hover:text-white transition-colors"
+              >
+                <Trash2 className="h-5 w-5 mr-2" />
+                Delete Session
+              </button>
             </div>
           </div>
         ) : (
@@ -229,10 +313,26 @@ export default function FacultyPresentation() {
 
             <div className="flex flex-wrap items-center justify-center gap-4 mt-4">
               <button
+                onClick={() => navigate(`/session/${session.id}/attendance`)}
+                className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-full text-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-900/50"
+              >
+                Attendance Roster
+              </button>
+              <button
                 onClick={() => navigate(`/session/${session.id}/review`)}
                 className="px-8 py-4 bg-blue-600 text-white font-bold rounded-full text-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-900/50"
               >
                 Live Review
+              </button>
+              <button
+                onClick={() => {
+                  setDeleteError('');
+                  setShowDeleteModal(true);
+                }}
+                className="flex items-center px-8 py-4 bg-red-600/20 border border-red-500 text-red-400 font-bold rounded-full text-xl hover:bg-red-600 hover:text-white transition-colors"
+              >
+                <Trash2 className="h-6 w-6 mr-2" />
+                Delete Session
               </button>
               <button
                 onClick={() => navigate('/faculty/dashboard')}
@@ -244,6 +344,75 @@ export default function FacultyPresentation() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl max-w-md w-full shadow-2xl border border-gray-800 overflow-hidden text-left">
+            <div className="flex items-center justify-between p-6 border-b border-gray-800">
+              <div className="flex items-center gap-2 text-red-500">
+                <Trash2 className="h-5 w-5" />
+                <h3 className="text-lg font-bold text-white">Delete Session</h3>
+              </div>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={isDeleting}
+                className="p-1 rounded-full text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-gray-400 font-bold">Session Date</p>
+                <p className="font-semibold text-white text-base mt-0.5">
+                  {session.created_at
+                    ? new Date(session.created_at).toLocaleString()
+                    : new Date(session.server_now).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="bg-red-950/60 border border-red-800/80 text-red-300 px-4 py-3 rounded-lg text-sm font-medium">
+                This permanently deletes {attendanceCount} attendance records and cannot be undone
+              </div>
+
+              {deleteError && (
+                <div className="bg-red-900/50 border border-red-700 text-red-300 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-gray-950 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-800">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 border border-gray-700 rounded-lg text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  'Delete Session'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

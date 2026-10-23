@@ -17,7 +17,9 @@ CREATE TABLE subjects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     code VARCHAR(100) NOT NULL,
-    faculty_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+    faculty_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    master_sheet_path TEXT,
+    master_sheet_updated_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE classes (
@@ -58,6 +60,8 @@ CREATE TABLE attendance_records (
     liveness_score REAL,
     submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     reviewed_at TIMESTAMP WITH TIME ZONE,
+    edit_reason TEXT,
+    edited_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT unique_session_student UNIQUE (session_id, student_id)
 );
 

@@ -1,56 +1,102 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import type { FormEvent, KeyboardEvent, ClipboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, CheckCircle, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { CheckCircle, AlertCircle, ArrowLeft, ArrowRight, Loader2, LogOut } from 'lucide-react';
+import BottomNav from '../components/BottomNav';
 
-type Step = 'IDLE' | 'FETCHING' | 'LOOK_STRAIGHT' | 'TURN_HEAD' | 'SUBMITTING';
+type FlowStage = 'CODE' | 'FACE_CHECK' | 'RESULT';
+type FaceSubStep = 'FETCHING' | 'LOOK_STRAIGHT' | 'TURN_HEAD' | 'SUBMITTING';
 
 export default function StudentCapture() {
-  const [sessionCode, setSessionCode] = useState('');
-  const [step, setStep] = useState<Step>('IDLE');
+  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [flowStage, setFlowStage] = useState<FlowStage>('CODE');
+  const [subStep, setSubStep] = useState<FaceSubStep>('FETCHING');
   const [challengeAction, setChallengeAction] = useState<'TURN_LEFT' | 'TURN_RIGHT' | null>(null);
-  const [error, setError] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [success, setSuccess] = useState(false);
+  const [progressPercent, setProgressPercent] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    startCamera();
-    return () => {
-      stopCamera();
-    };
-  }, []);
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } 
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (err) {
-      setError('Failed to access camera. Please allow permissions.');
-      console.error(err);
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
-  };
-
-  const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
     }
-  };
+  }, []);
 
-  // Helper to capture raw un-mirrored frame at max 480px width, JPEG quality 0.7
+  // Attach stream once on mount after persistent video element is mounted
+  useEffect(() => {
+    let isMounted = true;
+
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        });
+
+        if (!isMounted) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          try {
+            await videoRef.current.play();
+          } catch (playErr) {
+            console.error('video.play() failed:', playErr);
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to access camera:', err);
+        if (isMounted) {
+          setErrorMessage('Failed to access camera. Please allow camera permissions in your browser.');
+        }
+      }
+    };
+
+    startCamera();
+
+    // Stop only on unmount
+    return () => {
+      isMounted = false;
+      stopCamera();
+    };
+  }, [stopCamera]);
+
+  // Focus first input box on load
+  useEffect(() => {
+    if (flowStage === 'CODE' && inputRefs.current[0]) {
+      inputRefs.current[0].focus();
+    }
+  }, [flowStage]);
+
+  // Frame capture: skip if video.readyState < 2 or video.videoWidth === 0
   const captureFrame = (): string | null => {
     if (!videoRef.current || !canvasRef.current) return null;
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    let width = video.videoWidth || 640;
-    let height = video.videoHeight || 480;
+    if (video.readyState < 2 || video.videoWidth === 0) {
+      return null;
+    }
+
+    let width = video.videoWidth;
+    let height = video.videoHeight;
 
     if (width > 480) {
       height = Math.round((height * 480) / width);
@@ -68,17 +114,85 @@ export default function StudentCapture() {
     return canvas.toDataURL('image/jpeg', 0.7);
   };
 
-  const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+  const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
-  const handleStartFaceCheck = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sessionCode || sessionCode.length !== 6) {
-      setError('Please enter a valid 6-character session code.');
+  // 6-digit box handlers
+  const handleDigitChange = (index: number, val: string) => {
+    const cleaned = val.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!cleaned) {
+      const newDigits = [...digits];
+      newDigits[index] = '';
+      setDigits(newDigits);
       return;
     }
 
-    setError('');
-    setStep('FETCHING');
+    if (cleaned.length > 1) {
+      const newDigits = [...digits];
+      for (let i = 0; i < cleaned.length && index + i < 6; i++) {
+        newDigits[index + i] = cleaned[i];
+      }
+      setDigits(newDigits);
+      const nextFocus = Math.min(index + cleaned.length, 5);
+      inputRefs.current[nextFocus]?.focus();
+      return;
+    }
+
+    const newDigits = [...digits];
+    newDigits[index] = cleaned[0];
+    setDigits(newDigits);
+
+    if (index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!digits[index] && index > 0) {
+        inputRefs.current[index - 1]?.focus();
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    const newDigits = [...digits];
+    for (let i = 0; i < pasted.length; i++) {
+      newDigits[i] = pasted[i];
+    }
+    setDigits(newDigits);
+    const focusIdx = Math.min(pasted.length, 5);
+    inputRefs.current[focusIdx]?.focus();
+  };
+
+  const fullCode = digits.join('');
+
+  const handleStartFaceCheck = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
+    if (fullCode.length !== 6) {
+      setErrorMessage('Please enter a valid 6-character session code.');
+      return;
+    }
+
+    if (videoRef.current && videoRef.current.paused) {
+      try {
+        await videoRef.current.play();
+      } catch (err) {
+        console.error('Error starting video play:', err);
+      }
+    }
+
+    setErrorMessage('');
+    setFlowStage('FACE_CHECK');
+    setSubStep('FETCHING');
+    setProgressPercent(10);
 
     const token = localStorage.getItem('token');
     const API_URL = import.meta.env.VITE_API_URL || '';
@@ -89,9 +203,9 @@ export default function StudentCapture() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ code: sessionCode })
+        body: JSON.stringify({ code: fullCode }),
       });
 
       const challengeData = await challengeRes.json();
@@ -108,37 +222,48 @@ export default function StudentCapture() {
 
       const { challengeId, action } = challengeData;
       setChallengeAction(action);
+      setProgressPercent(25);
 
       // 2. Look straight (capture 2 frames over ~0.8s)
-      setStep('LOOK_STRAIGHT');
+      setSubStep('LOOK_STRAIGHT');
       await sleep(350);
       const f1 = captureFrame();
+      setProgressPercent(35);
       await sleep(400);
       const f2 = captureFrame();
+      setProgressPercent(45);
 
       const frames: string[] = [f1, f2].filter(Boolean) as string[];
 
       // 3. Turn head instruction + capture 1 frame per 250ms for 3s (12 frames)
-      setStep('TURN_HEAD');
+      setSubStep('TURN_HEAD');
       for (let i = 0; i < 12; i++) {
         await sleep(250);
         const frame = captureFrame();
         if (frame) frames.push(frame);
+        setProgressPercent(45 + Math.round(((i + 1) / 12) * 45));
+      }
+
+      // Check valid frames: skip API if fewer than 8 valid frames were captured
+      if (frames.length < 8) {
+        throw new Error('Camera not ready, please try again');
       }
 
       // 4. Submit attendance with frames
-      setStep('SUBMITTING');
+      setSubStep('SUBMITTING');
+      setProgressPercent(95);
+
       const submitRes = await fetch(`${API_URL}/api/attendance/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          code: sessionCode,
+          code: fullCode,
           challengeId,
-          frames
-        })
+          frames,
+        }),
       });
 
       const submitData = await submitRes.json();
@@ -165,141 +290,307 @@ export default function StudentCapture() {
         }
       }
 
-      // Success
+      // Success: stop stream after submit
+      setProgressPercent(100);
       setSuccess(true);
+      setFlowStage('RESULT');
       stopCamera();
 
-      // Auto logout after 3 seconds
+      // Auto-logout after 3 seconds
       setTimeout(() => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         navigate('/login');
       }, 3000);
-
     } catch (err: any) {
-      setError(err.message || 'Face check failed');
-      setStep('IDLE');
-      setChallengeAction(null);
+      setErrorMessage(err.message || 'Face check failed');
+      setFlowStage('RESULT');
+      setSuccess(false);
     }
   };
 
-  if (success) {
-    return (
-      <div className="min-h-screen bg-green-50 flex flex-col items-center justify-center p-4">
-        <div className="text-center space-y-4">
-          <CheckCircle className="h-24 w-24 text-green-500 mx-auto" />
-          <h1 className="text-3xl font-bold text-green-800">Success!</h1>
-          <p className="text-green-600 text-lg">Your attendance is pending faculty review.</p>
-          <p className="text-sm text-green-500">Logging you out securely...</p>
-        </div>
-      </div>
-    );
-  }
+  const handleTryAgain = () => {
+    setErrorMessage('');
+    setFlowStage('CODE');
+    setSuccess(false);
+    if (videoRef.current && videoRef.current.paused) {
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
+  const handleLogout = () => {
+    stopCamera();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col p-4 md:p-8">
-      <div className="max-w-md w-full mx-auto space-y-6">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900">Student Attendance</h2>
-          <p className="text-gray-500 mt-2">Enter session code and complete the face liveness check</p>
-        </div>
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-between safe-pt pb-24">
+      {/* Hidden canvas for un-mirrored frame capture */}
+      <canvas ref={canvasRef} className="hidden" />
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm text-center font-medium shadow-sm">
-            {error}
+      {/* Main Content Area */}
+      <div className="w-full max-w-[360px] sm:max-w-md mx-auto px-4 py-4 space-y-4">
+        {/* Top Header */}
+        <header className="flex items-center justify-between bg-white px-4 py-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-[#0F172A] text-white font-black text-sm rounded-xl flex items-center justify-center select-none shadow-xs">
+              M
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 leading-tight">MegaByte</h2>
+              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Student Portal</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex items-center gap-1 min-h-[44px] min-w-[44px] justify-center text-slate-400 hover:text-red-600 transition-colors"
+            title="Log out"
+            aria-label="Log out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </header>
+
+        {/* STEP 3: RESULT SCREEN */}
+        {flowStage === 'RESULT' && (
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm text-center space-y-5 animate-in fade-in duration-200">
+            {success ? (
+              <>
+                <div className="w-16 h-16 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-center mx-auto text-[#16A34A]">
+                  <CheckCircle className="h-10 w-10" />
+                </div>
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 inline-block">
+                    Verified
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Attendance submitted — awaiting faculty approval
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                    Your verification record has been saved.
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/60 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-700">Logging you out securely...</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Redirecting to login in 3 seconds</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 bg-rose-50 rounded-2xl border border-rose-100 flex items-center justify-center mx-auto text-[#DC2626]">
+                  <AlertCircle className="h-10 w-10" />
+                </div>
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200 inline-block">
+                    Verification Failed
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Unable to verify attendance
+                  </h3>
+                  <p className="text-xs text-rose-600 font-medium px-2 py-2 bg-rose-50/50 rounded-xl border border-rose-100">
+                    {errorMessage || 'Verification failed. Please try again.'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTryAgain}
+                  className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all"
+                >
+                  Try again
+                </button>
+              </>
+            )}
           </div>
         )}
 
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-          <div className="relative aspect-[4/3] bg-black overflow-hidden">
-            {/* Live preview is mirrored for natural UX, raw captures are un-mirrored */}
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              muted 
-              style={{ transform: 'scaleX(-1)' }}
-              className="w-full h-full object-cover"
+        {/* STEP 2: PERSISTENT FACE-CHECK VIEWFINDER (never conditionally unmounted) */}
+        <div
+          className={
+            flowStage === 'FACE_CHECK'
+              ? 'bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-6 text-center animate-in fade-in duration-200'
+              : 'fixed -left-[9999px] -top-[9999px] w-[320px] pointer-events-none'
+          }
+        >
+          {/* Instruction Heading */}
+          <div className="min-h-[56px] flex flex-col items-center justify-center">
+            {subStep === 'FETCHING' && (
+              <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-[#2563EB]" />
+                <span>Preparing face check...</span>
+              </div>
+            )}
+
+            {subStep === 'LOOK_STRAIGHT' && (
+              <div className="space-y-1">
+                <h3 className="text-2xl font-extrabold text-[#0F172A] tracking-tight">
+                  Look straight
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Center your face and look directly at the lens
+                </p>
+              </div>
+            )}
+
+            {subStep === 'TURN_HEAD' && challengeAction && (
+              <div className="space-y-1">
+                <h3 className="text-2xl font-extrabold text-[#D97706] tracking-tight flex items-center justify-center gap-2">
+                  {challengeAction === 'TURN_LEFT' ? (
+                    <>
+                      <ArrowLeft className="h-6 w-6 animate-pulse" />
+                      <span>Turn head to YOUR LEFT</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Turn head to YOUR RIGHT</span>
+                      <ArrowRight className="h-6 w-6 animate-pulse" />
+                    </>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Slowly rotate your head until check finishes
+                </p>
+              </div>
+            )}
+
+            {subStep === 'SUBMITTING' && (
+              <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-[#16A34A]" />
+                <span>Verifying face & liveness...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Circular Camera Viewfinder with ONE persistent video */}
+          <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto">
+            {/* Outer Progress Ring */}
+            <div className="absolute -inset-2 rounded-full border-4 border-slate-100 overflow-hidden" />
+            <div
+              className="absolute -inset-2 rounded-full border-4 border-transparent transition-all duration-300"
+              style={{
+                borderTopColor: subStep === 'TURN_HEAD' ? '#D97706' : '#2563EB',
+                borderRightColor:
+                  progressPercent > 50
+                    ? subStep === 'TURN_HEAD'
+                      ? '#D97706'
+                      : '#2563EB'
+                    : 'transparent',
+                transform: `rotate(${progressPercent * 3.6}deg)`,
+              }}
             />
-            <canvas ref={canvasRef} className="hidden" />
 
-            {/* Instruction Banner Overlay */}
-            {step === 'LOOK_STRAIGHT' && (
-              <div className="absolute inset-x-0 top-4 mx-4 p-3 bg-blue-600/90 backdrop-blur-md rounded-xl text-white text-center font-bold text-base shadow-lg animate-pulse flex items-center justify-center gap-2">
-                <span>👤</span>
-                <span>Look straight at the camera</span>
-              </div>
-            )}
+            {/* Viewfinder Circle */}
+            <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 border-4 border-white shadow-lg relative">
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ objectFit: 'cover', transform: 'scaleX(-1)' }}
+                className="w-full h-full"
+              />
 
-            {step === 'TURN_HEAD' && challengeAction && (
-              <div className="absolute inset-x-0 top-4 mx-4 p-4 bg-amber-500/95 backdrop-blur-md rounded-xl text-white text-center font-extrabold text-lg shadow-xl animate-bounce flex items-center justify-center gap-2 border-2 border-white/50">
-                {challengeAction === 'TURN_LEFT' ? (
-                  <>
-                    <ArrowLeft className="h-6 w-6" />
-                    <span>Turn head to YOUR LEFT</span>
-                    <ArrowLeft className="h-6 w-6" />
-                  </>
-                ) : (
-                  <>
-                    <ArrowRight className="h-6 w-6" />
-                    <span>Turn head to YOUR RIGHT</span>
-                    <ArrowRight className="h-6 w-6" />
-                  </>
-                )}
-              </div>
-            )}
+              {/* Subtle Framing Silhouette */}
+              <div className="absolute inset-0 rounded-full border border-white/20 pointer-events-none" />
+              <div className="absolute inset-8 rounded-full border border-dashed border-white/30 pointer-events-none" />
 
-            {step === 'FETCHING' && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-3">
-                <Loader2 className="h-10 w-10 animate-spin text-blue-400" />
-                <p className="font-semibold text-sm">Preparing face check...</p>
-              </div>
-            )}
+              {/* Submitting Overlay */}
+              {subStep === 'SUBMITTING' && (
+                <div className="absolute inset-0 bg-[#0F172A]/70 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2 p-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-white" />
+                  <p className="text-xs font-semibold">Submitting attendance...</p>
+                </div>
+              )}
+            </div>
+          </div>
 
-            {step === 'SUBMITTING' && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-3">
-                <Loader2 className="h-10 w-10 animate-spin text-green-400" />
-                <p className="font-semibold text-sm">Verifying face & liveness...</p>
-              </div>
-            )}
+          {/* Progress Bar */}
+          <div className="space-y-1.5 pt-2">
+            <div className="flex justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Progress</span>
+              <span>{progressPercent}%</span>
+            </div>
+            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#0F172A] rounded-full transition-all duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
           </div>
         </div>
 
-        <form onSubmit={handleStartFaceCheck} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Session Code
-            </label>
-            <input
-              type="text"
-              required
-              disabled={step !== 'IDLE'}
-              maxLength={6}
-              placeholder="e.g. A1B2C3"
-              className="appearance-none block w-full px-4 py-4 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-2xl text-center uppercase font-mono tracking-widest disabled:bg-gray-100"
-              value={sessionCode}
-              onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-            />
-          </div>
+        {/* STEP 1: CODE ENTRY */}
+        {flowStage === 'CODE' && (
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-5 animate-in fade-in duration-200">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100 inline-block">
+                Attendance Check-in
+              </span>
+              <h3 className="text-lg font-bold text-slate-900">Enter Session Code</h3>
+              <p className="text-xs text-slate-500">
+                Enter the 6-character code displayed by your faculty
+              </p>
+            </div>
 
-          <button
-            type="submit"
-            disabled={step !== 'IDLE' || sessionCode.length !== 6}
-            className="w-full flex justify-center items-center py-4 px-4 border border-transparent rounded-xl shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {step === 'IDLE' && (
-              <>
-                <Camera className="h-5 w-5 mr-2" />
-                Start face check
-              </>
+            {errorMessage && (
+              <div className="bg-red-50 border border-red-200 text-red-600 px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-red-500" />
+                <span>{errorMessage}</span>
+              </div>
             )}
-            {step === 'FETCHING' && 'Getting challenge...'}
-            {step === 'LOOK_STRAIGHT' && 'Looking straight...'}
-            {step === 'TURN_HEAD' && 'Turning head...'}
-            {step === 'SUBMITTING' && 'Verifying attendance...'}
-          </button>
-        </form>
+
+            <form onSubmit={handleStartFaceCheck} className="space-y-5">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-center mb-2.5">
+                  6-Digit Session Code
+                </label>
+                <div className="flex justify-between gap-1.5 sm:gap-2 max-w-[300px] mx-auto">
+                  {digits.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      ref={(el) => {
+                        inputRefs.current[idx] = el;
+                      }}
+                      type="text"
+                      maxLength={1}
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={digit}
+                      onChange={(e) => handleDigitChange(idx, e.target.value)}
+                      onKeyDown={(e) => handleKeyDown(idx, e)}
+                      onPaste={handlePaste}
+                      className="w-10 h-12 sm:w-11 sm:h-13 text-center font-mono text-xl font-bold uppercase rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 shadow-xs transition-all"
+                      aria-label={`Digit ${idx + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={fullCode.length !== 6}
+                className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Start Face Check
+              </button>
+            </form>
+
+            {user.name && (
+              <div className="text-center pt-1 border-t border-slate-100">
+                <p className="text-[11px] text-slate-400">
+                  Signed in as <span className="font-semibold text-slate-600">{user.name}</span> ({user.student_id})
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Persistent Bottom Navigation */}
+      <BottomNav activeTab="verify" onNavigate={stopCamera} />
     </div>
   );
 }

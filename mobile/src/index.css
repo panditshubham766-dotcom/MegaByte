@@ -1,1 +1,47 @@
 @import "tailwindcss";
+
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  /* Brand / Palette Tokens */
+  --bg-page: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --card-radius: 16px;
+  --card-border: #E2E8F0;
+  
+  --color-navy: #0F172A;
+  --color-navy-hover: #1E293B;
+  --color-blue-accent: #2563EB;
+  --color-green-success: #16A34A;
+  --color-amber-timer: #D97706;
+  --color-red-error: #DC2626;
+
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-muted: #94A3B8;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 0;
+  min-width: 360px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Touch targets and safe area helpers */
+.min-touch {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.safe-pb {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.safe-pt {
+  padding-top: env(safe-area-inset-top, 16px);
+}

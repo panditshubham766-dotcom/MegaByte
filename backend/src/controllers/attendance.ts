@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
 import { markExpired } from './session';
 import { triggerDebouncedSubmissionExport, writeSessionExport } from '../services/sessionExport';
+import { updateSubjectSheet } from '../services/subjectSheet';
 import {
     detectPose,
     checkFrontalFrame,
@@ -79,13 +80,12 @@ export const requestChallenge = async (req: AuthRequest, res: Response): Promise
 
         // Random action via crypto ('TURN_LEFT' | 'TURN_RIGHT')
         const action = crypto.randomInt(0, 2) === 0 ? 'TURN_LEFT' : 'TURN_RIGHT';
-        const expiresAt = new Date(Date.now() + 60 * 1000); // 60 seconds expiry
 
         const insertRes = await pool.query(
             `INSERT INTO liveness_challenges (student_id, session_id, action, expires_at)
-             VALUES ($1, $2, $3, $4)
+             VALUES ($1, $2, $3, NOW() + make_interval(secs => 60))
              RETURNING id, action`,
-            [studentId, sessionId, action, expiresAt]
+            [studentId, sessionId, action]
         );
 
         res.status(200).json({
@@ -378,10 +378,262 @@ export const reviewSubmission = async (req: AuthRequest, res: Response): Promise
         } catch (err) {
             console.error('Export error on review decision:', err);
         }
+        try {
+            const sessRes = await pool.query('SELECT subject_id FROM attendance_sessions WHERE id = $1', [reviewedRecord.session_id]);
+            if (sessRes.rowCount && sessRes.rows[0].subject_id) {
+                await updateSubjectSheet(sessRes.rows[0].subject_id);
+            }
+        } catch (err) {
+            console.error('Subject sheet update error on review decision:', err);
+        }
 
         res.status(200).json({ message: 'Submission reviewed successfully', record: reviewedRecord });
     } catch (error) {
         console.error('Error reviewing submission:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const editAttendance = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        const { sessionId, studentId, status, reason } = req.body;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        if (!sessionId || !studentId) {
+            res.status(400).json({ message: 'sessionId and studentId are required' });
+            return;
+        }
+
+        if (status !== 'APPROVED' && status !== 'REJECTED') {
+            res.status(400).json({ message: 'status must be APPROVED or REJECTED' });
+            return;
+        }
+
+        const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+        if (trimmedReason.length < 5) {
+            res.status(400).json({ message: 'Reason must be at least 5 characters' });
+            return;
+        }
+
+        // Check session ownership
+        const sessionRes = await pool.query(
+            `SELECT id, faculty_id, subject_id FROM attendance_sessions WHERE id = $1`,
+            [sessionId]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'Session not found' });
+            return;
+        }
+
+        const session = sessionRes.rows[0];
+        if (session.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this session' });
+            return;
+        }
+
+        // Find student user
+        const userRes = await pool.query(
+            `SELECT id, student_id, name FROM users WHERE id::text = $1 OR student_id = $1 LIMIT 1`,
+            [studentId]
+        );
+
+        if (userRes.rowCount === 0) {
+            res.status(404).json({ message: 'Student not found' });
+            return;
+        }
+
+        const resolvedStudent = userRes.rows[0];
+        const studentUuid = resolvedStudent.id;
+
+        // Check if student is enrolled in the session's subject
+        const enrollRes = await pool.query(
+            `SELECT 1 FROM enrollments WHERE student_id = $1 AND subject_id = $2 LIMIT 1`,
+            [studentUuid, session.subject_id]
+        );
+
+        if (enrollRes.rowCount === 0) {
+            res.status(400).json({ message: 'Student is not enrolled in this session’s subject' });
+            return;
+        }
+
+        // Check current attendance record status (if any)
+        const currentRes = await pool.query(
+            `SELECT id, status, edit_reason FROM attendance_records WHERE session_id = $1 AND student_id = $2`,
+            [sessionId, studentUuid]
+        );
+
+        const currentRecord = currentRes.rows[0];
+        const currentStatus = currentRecord ? currentRecord.status : null;
+
+        if (currentStatus === status) {
+            res.status(400).json({ message: 'New status cannot be the same as current status' });
+            return;
+        }
+
+        // Upsert attendance record: student with no record gets a new record with no photo
+        const upsertRes = await pool.query(
+            `INSERT INTO attendance_records (session_id, student_id, status, edit_reason, edited_at, reviewed_at, photo_base64)
+             VALUES ($1, $2, $3, $4, NOW(), NOW(), NULL)
+             ON CONFLICT (session_id, student_id)
+             DO UPDATE SET
+                 status = EXCLUDED.status,
+                 edit_reason = EXCLUDED.edit_reason,
+                 edited_at = NOW(),
+                 reviewed_at = NOW()
+             RETURNING *`,
+            [sessionId, studentUuid, status, trimmedReason]
+        );
+
+        const updatedRecord = upsertRes.rows[0];
+
+        // Audit log entry
+        await pool.query(
+            `INSERT INTO audit_logs (user_id, attendance_id, action, old_value, new_value, timestamp)
+             VALUES ($1, $2, 'EDIT_ATTENDANCE', $3, $4, NOW())`,
+            [
+                facultyId,
+                updatedRecord.id,
+                JSON.stringify({ status: currentStatus, edit_reason: currentRecord?.edit_reason || null }),
+                JSON.stringify({ status: status, reason: trimmedReason, actor: 'FACULTY' })
+            ]
+        );
+
+        // Update Excel export
+        try {
+            await writeSessionExport(sessionId);
+        } catch (err) {
+            console.error('Export error on edit attendance:', err);
+        }
+        try {
+            if (session.subject_id) {
+                await updateSubjectSheet(session.subject_id);
+            }
+        } catch (err) {
+            console.error('Subject sheet update error on edit attendance:', err);
+        }
+
+        res.status(200).json({
+            message: 'Attendance edited successfully',
+            record: updatedRecord
+        });
+    } catch (error) {
+        console.error('Error editing attendance:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const studentId = req.user?.id;
+        if (!studentId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        // 1. Fetch all subjects student is enrolled in
+        const subjectsRes = await pool.query(
+            `SELECT DISTINCT s.id AS subject_id, s.name AS subject_name, s.code AS subject_code
+             FROM enrollments e
+             JOIN subjects s ON e.subject_id = s.id
+             WHERE e.student_id = $1
+             ORDER BY s.name ASC`,
+            [studentId]
+        );
+
+        const result = [];
+
+        for (const sub of subjectsRes.rows) {
+            // Sessions of that subject no longer ACTIVE (i.e. ENDED or EXPIRED)
+            const sessionsRes = await pool.query(
+                `SELECT id, created_at, status
+                 FROM attendance_sessions
+                 WHERE subject_id = $1 AND status != 'ACTIVE'
+                 ORDER BY created_at DESC`,
+                [sub.subject_id]
+            );
+
+            const sessions = sessionsRes.rows;
+            const total = sessions.length;
+
+            if (total === 0) {
+                result.push({
+                    subject_id: sub.subject_id,
+                    subject_name: sub.subject_name,
+                    subject_code: sub.subject_code,
+                    total: 0,
+                    present: 0,
+                    percentage: 0,
+                    sessions: []
+                });
+                continue;
+            }
+
+            const sessionIds = sessions.map(s => s.id);
+            const recordsRes = await pool.query(
+                `SELECT session_id, status, edit_reason, edited_at
+                 FROM attendance_records
+                 WHERE student_id = $1 AND session_id = ANY($2::uuid[])`,
+                [studentId, sessionIds]
+            );
+
+            const recordMap = new Map<string, any>();
+            for (const r of recordsRes.rows) {
+                recordMap.set(r.session_id, r);
+            }
+
+            let presentCount = 0;
+            const sessionList = [];
+
+            for (const sess of sessions) {
+                const rec = recordMap.get(sess.id);
+                let statusDisplay = 'Absent';
+
+                if (rec) {
+                    if (rec.status === 'APPROVED') {
+                        statusDisplay = 'Present';
+                        presentCount++;
+                    } else if (rec.status === 'REJECTED') {
+                        statusDisplay = 'Rejected';
+                    } else if (rec.status === 'PENDING') {
+                        statusDisplay = 'Pending';
+                    }
+                }
+
+                sessionList.push({
+                    session_id: sess.id,
+                    date: sess.created_at,
+                    status: statusDisplay,
+                    edited: Boolean(rec && (rec.edited_at || rec.edit_reason)),
+                    edit_reason: rec?.edit_reason || null
+                });
+            }
+
+            const percentage = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+
+            result.push({
+                subject_id: sub.subject_id,
+                subject_name: sub.subject_name,
+                subject_code: sub.subject_code,
+                total,
+                present: presentCount,
+                percentage,
+                sessions: sessionList
+            });
+        }
+
+        res.status(200).json(result);
+    } catch (error) {
+        console.error('Error fetching student attendance summary:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };

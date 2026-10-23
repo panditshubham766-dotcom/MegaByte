@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
 import sessionRoutes from './routes/session';
 import attendanceRoutes from './routes/attendance';
+import subjectRoutes from './routes/subject';
 import { markExpired } from './controllers/session';
 import { initFaceService } from './services/face';
 
@@ -21,6 +22,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/subjects', subjectRoutes);
 
 app.get('/health', (req: Request, res: Response) => {
     res.status(200).json({
