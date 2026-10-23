@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Check, X, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Check, X, ArrowLeft, RefreshCw, Download } from 'lucide-react';
 
 interface PendingSubmission {
   record_id: string;
@@ -9,6 +9,7 @@ interface PendingSubmission {
   photo_base64: string;
   status: string;
   face_match_score?: number | null;
+  liveness_score?: number | null;
 }
 
 interface SessionInfo {
@@ -28,6 +29,7 @@ export default function FacultyReview() {
   const [submissions, setSubmissions] = useState<PendingSubmission[]>([]);
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
   const [, setTick] = useState(0);
 
@@ -83,6 +85,13 @@ export default function FacultyReview() {
   useEffect(() => {
     fetchSession();
     fetchPending();
+  }, [fetchSession, fetchPending]);
+
+  // Stop polling when status != ACTIVE
+  useEffect(() => {
+    if (!sessionInfo || sessionInfo.status !== 'ACTIVE') {
+      return;
+    }
 
     const interval = setInterval(() => {
       fetchSession();
@@ -90,7 +99,7 @@ export default function FacultyReview() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [fetchSession, fetchPending]);
+  }, [sessionInfo?.status, fetchSession, fetchPending]);
 
   // Tick every second to update active countdown display
   useEffect(() => {
@@ -99,6 +108,48 @@ export default function FacultyReview() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const handleDownloadExcel = async () => {
+    if (!currentSessionId) return;
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/sessions/${currentSessionId}/export`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to download Excel file');
+      }
+
+      const disposition = response.headers.get('content-disposition');
+      let filename = `attendance_${sessionInfo?.random_code || currentSessionId}.xlsx`;
+      if (disposition && disposition.includes('filename=')) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Error downloading Excel:', err);
+      alert(err.message || 'Could not download Excel export');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const handleReview = async (recordId: string, status: 'APPROVED' | 'REJECTED') => {
     // Optimistic UI update
@@ -143,13 +194,13 @@ export default function FacultyReview() {
     if (sessionInfo.status === 'EXPIRED') {
       return (
         <span className="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300">
-          EXPIRED (Time up)
+          Expired
         </span>
       );
     }
     return (
       <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-800 border border-gray-300">
-        ENDED (Faculty)
+        Ended
       </span>
     );
   };
@@ -169,9 +220,26 @@ export default function FacultyReview() {
             <h1 className="text-2xl font-bold text-gray-900">Live Review Dashboard</h1>
             {renderStatusChip()}
           </div>
-          <div className="flex items-center text-gray-500 text-sm bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
-            <RefreshCw className="h-4 w-4 mr-2 animate-spin-slow" />
-            Live Polling Active
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleDownloadExcel}
+              disabled={downloading}
+              className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              title="Download Attendance Excel Workbook"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {downloading ? 'Downloading...' : 'Download Excel'}
+            </button>
+            {sessionInfo?.status === 'ACTIVE' ? (
+              <div className="flex items-center text-gray-500 text-sm bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin-slow" />
+                Live Polling Active
+              </div>
+            ) : (
+              <div className="flex items-center text-gray-500 text-sm bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
+                Session ended
+              </div>
+            )}
           </div>
         </header>
 
@@ -190,8 +258,14 @@ export default function FacultyReview() {
             <div className="mx-auto w-24 h-24 mb-4 bg-gray-100 rounded-full flex items-center justify-center">
               <Check className="h-10 w-10 text-gray-400" />
             </div>
-            <h3 className="text-xl font-medium text-gray-900 mb-1">All caught up!</h3>
-            <p>Waiting for new student submissions...</p>
+            {sessionInfo?.status !== 'ACTIVE' ? (
+              <h3 className="text-xl font-medium text-gray-900 mb-1">No pending submissions</h3>
+            ) : (
+              <>
+                <h3 className="text-xl font-medium text-gray-900 mb-1">All caught up!</h3>
+                <p>Waiting for new student submissions...</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -210,8 +284,11 @@ export default function FacultyReview() {
                     </div>
                   )}
                   {sub.face_match_score !== undefined && sub.face_match_score !== null && (
-                    <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-sm text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow">
-                      Match {Math.round(sub.face_match_score * 100)}%
+                    <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-sm text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow flex items-center gap-1.5">
+                      <span>Match {Math.round(sub.face_match_score * 100)}%</span>
+                      {sub.liveness_score !== undefined && sub.liveness_score !== null && (
+                        <span className="text-green-300">• Live {Math.round(sub.liveness_score * 100)}%</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -221,11 +298,18 @@ export default function FacultyReview() {
                       <h3 className="font-bold text-lg text-gray-900 truncate">{sub.name}</h3>
                       <p className="text-sm text-gray-500 truncate">{sub.student_id || 'No ID Provided'}</p>
                     </div>
-                    {sub.face_match_score !== undefined && sub.face_match_score !== null && (
-                      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
-                        Match {Math.round(sub.face_match_score * 100)}%
-                      </span>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      {sub.face_match_score !== undefined && sub.face_match_score !== null && (
+                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                          Match {Math.round(sub.face_match_score * 100)}%
+                        </span>
+                      )}
+                      {sub.liveness_score !== undefined && sub.liveness_score !== null && (
+                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-green-50 text-green-700 border border-green-200 whitespace-nowrap">
+                          Live {Math.round(sub.liveness_score * 100)}%
+                        </span>
+                      )}
+                    </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-2 mt-auto">

@@ -153,8 +153,10 @@ export default function FacultyPresentation() {
   const seconds = timeLeft % 60;
   const isOver = session.status !== 'ACTIVE';
 
+  const codeChars = (session.random_code || '').slice(0, 6).split('');
+
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative">
+    <div className="min-h-screen md:h-screen md:max-h-screen md:overflow-hidden bg-black flex flex-col items-center justify-center p-4 md:p-6 relative select-none">
       <div className="absolute top-6 left-6">
         <button
           onClick={() => navigate('/faculty/dashboard')}
@@ -165,19 +167,25 @@ export default function FacultyPresentation() {
         </button>
       </div>
 
-      <div className="text-center w-full max-w-4xl">
-        <h1 className="text-3xl md:text-5xl text-gray-400 mb-6 tracking-wider uppercase">
+      <div className="text-center w-full max-w-4xl my-auto">
+        <h1 className="text-2xl md:text-4xl text-gray-400 mb-4 md:mb-6 tracking-wider uppercase">
           Attendance Code
         </h1>
 
-        <div className={`bg-gray-900 border-2 rounded-3xl p-10 md:p-20 shadow-2xl mb-8 transform transition-all ${
-          isOver ? 'border-gray-700 opacity-60' : 'border-green-500 shadow-[0_0_50px_rgba(34,197,94,0.3)] hover:scale-105'
-        }`}>
-          <div className={`text-[15vw] leading-none font-mono font-bold tracking-[0.2em] ${
-            isOver ? 'text-gray-500' : 'text-green-400'
-          }`}>
-            {session.random_code}
-          </div>
+        <div className="grid grid-cols-6 gap-2 sm:gap-3 md:gap-4 w-full mb-6 max-w-3xl mx-auto">
+          {codeChars.map((char, index) => (
+            <div
+              key={index}
+              className={`aspect-square flex items-center justify-center rounded-2xl md:rounded-3xl border-2 font-mono font-bold shadow-2xl transition-all ${
+                isOver
+                  ? 'bg-gray-900 border-gray-700 text-gray-500'
+                  : 'bg-gray-900 border-green-500 text-green-400 shadow-[0_0_30px_rgba(34,197,94,0.25)]'
+              }`}
+              style={{ fontSize: 'clamp(2.5rem, 10vw, 8rem)' }}
+            >
+              {char}
+            </div>
+          ))}
         </div>
 
         {!isOver ? (

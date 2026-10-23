@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
+import { writeSessionExport, buildSessionWorkbook } from '../services/sessionExport';
 
 export const markExpired = async (): Promise<string[]> => {
     const res = await pool.query(
@@ -9,7 +10,15 @@ export const markExpired = async (): Promise<string[]> => {
          WHERE status = 'ACTIVE' AND expires_at <= NOW()
          RETURNING id`
     );
-    return res.rows.map(row => row.id);
+    const expiredIds = res.rows.map(row => row.id);
+    for (const id of expiredIds) {
+        try {
+            await writeSessionExport(id);
+        } catch (err) {
+            console.error(`Export error on session expired ${id}:`, err);
+        }
+    }
+    return expiredIds;
 };
 
 const generateRandomCode = () => {
@@ -90,7 +99,14 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
             [facultyId, subjectId, classId, randomCode, 'ACTIVE', expiresAt]
         );
 
-        res.status(201).json(insertSession.rows[0]);
+        const newSession = insertSession.rows[0];
+        try {
+            await writeSessionExport(newSession.id);
+        } catch (err) {
+            console.error('Export error on session create:', err);
+        }
+
+        res.status(201).json(newSession);
     } catch (error) {
         console.error('Error creating session:', error);
         res.status(500).json({ message: 'Internal server error' });
@@ -203,6 +219,11 @@ export const endSession = async (req: AuthRequest, res: Response): Promise<void>
                  RETURNING id, random_code, status, expires_at, ended_at, NOW() as server_now`,
                 [id]
             );
+            try {
+                await writeSessionExport(id);
+            } catch (err) {
+                console.error('Export error on end session:', err);
+            }
             res.status(200).json(updateRes.rows[0]);
             return;
         }
@@ -212,6 +233,55 @@ export const endSession = async (req: AuthRequest, res: Response): Promise<void>
         res.status(200).json(data);
     } catch (error) {
         console.error('Error ending session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const exportSession = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        const { id } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const sessionRes = await pool.query(
+            `SELECT id, faculty_id, random_code FROM attendance_sessions WHERE id = $1`,
+            [id]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'Session not found' });
+            return;
+        }
+
+        const session = sessionRes.rows[0];
+        if (session.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this session' });
+            return;
+        }
+
+        // Regenerate and upsert
+        await writeSessionExport(id);
+        const buffer = await buildSessionWorkbook(id);
+
+        const now = new Date();
+        const yyyy = now.getUTCFullYear();
+        const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(now.getUTCDate()).padStart(2, '0');
+        const hh = String(now.getUTCHours()).padStart(2, '0');
+        const min = String(now.getUTCMinutes()).padStart(2, '0');
+        const filename = `attendance_${yyyy}${mm}${dd}-${hh}${min}_${session.random_code}.xlsx`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+    } catch (error) {
+        console.error('Error exporting session:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
