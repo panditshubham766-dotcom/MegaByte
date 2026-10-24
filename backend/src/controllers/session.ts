@@ -349,7 +349,7 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
             return;
         }
 
-        // Fetch enrolled students in session's subject
+        // Fetch enrolled students in session's subject prior to or at session creation
         const enrolledRes = await pool.query(
             `SELECT 
                 u.id AS user_id,
@@ -362,9 +362,9 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
              FROM enrollments e
              JOIN users u ON e.student_id = u.id
              LEFT JOIN attendance_records a ON a.session_id = $1 AND a.student_id = u.id
-             WHERE e.subject_id = $2
+             WHERE e.subject_id = $2 AND e.created_at <= $3
              ORDER BY u.student_id ASC, u.name ASC`,
-            [id, session.subject_id]
+            [id, session.subject_id, session.created_at]
         );
 
         let rows = enrolledRes.rows;

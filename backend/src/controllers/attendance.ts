@@ -542,7 +542,7 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
 
         // 1. Fetch all subjects student is enrolled in
         const subjectsRes = await pool.query(
-            `SELECT DISTINCT s.id AS subject_id, s.name AS subject_name, s.code AS subject_code
+            `SELECT DISTINCT s.id AS subject_id, s.name AS subject_name, s.code AS subject_code, e.created_at AS enrolled_at
              FROM enrollments e
              JOIN subjects s ON e.subject_id = s.id
              WHERE e.student_id = $1
@@ -553,13 +553,13 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
         const result = [];
 
         for (const sub of subjectsRes.rows) {
-            // Sessions of that subject no longer ACTIVE (i.e. ENDED or EXPIRED)
+            // Sessions of that subject created >= enrollment created_at and no longer ACTIVE (i.e. ENDED or EXPIRED)
             const sessionsRes = await pool.query(
                 `SELECT id, created_at, status
                  FROM attendance_sessions
-                 WHERE subject_id = $1 AND status != 'ACTIVE'
+                 WHERE subject_id = $1 AND status != 'ACTIVE' AND created_at >= $2
                  ORDER BY created_at DESC`,
-                [sub.subject_id]
+                [sub.subject_id, sub.enrolled_at]
             );
 
             const sessions = sessionsRes.rows;

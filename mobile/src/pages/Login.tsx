@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const [email, setEmail] = useState((location.state as any)?.email || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -32,13 +33,18 @@ export default function Login() {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, device_uuid }),
+        body: JSON.stringify({ email, password, portal: 'student', device_uuid }),
       });
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error('Server unreachable, please try again');
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
+        throw new Error(data?.message || 'Login failed');
       }
 
       localStorage.setItem('token', data.token);
@@ -68,7 +74,7 @@ export default function Login() {
             MegaByte
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Sign in to your account
+            Student Portal • Sign in
           </p>
         </div>
 
@@ -89,7 +95,7 @@ export default function Login() {
               <input
                 type="email"
                 required
-                placeholder="student@university.edu"
+                placeholder="23bcs001@iiitdwd.ac.in"
                 className="w-full h-12 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -120,6 +126,15 @@ export default function Login() {
               </div>
             </div>
 
+            <div className="flex items-center justify-end">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-semibold text-blue-600 hover:text-blue-500"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
             <div className="pt-1">
               <button
                 type="submit"
@@ -130,6 +145,15 @@ export default function Login() {
               </button>
             </div>
           </form>
+
+          <div className="mt-5 text-center border-t border-slate-100 pt-4">
+            <Link
+              to="/signup"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-500"
+            >
+              Do not have an account? Sign up
+            </Link>
+          </div>
         </div>
       </div>
     </div>

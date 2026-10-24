@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import ExcelJS from 'exceljs';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
@@ -73,7 +73,7 @@ export const getSubjectHistory = async (req: AuthRequest, res: Response): Promis
 
         // 3. Query all students enrolled in the subject
         const enrolledRes = await pool.query(
-            `SELECT u.id AS user_id, u.student_id, u.name 
+            `SELECT u.id AS user_id, u.student_id, u.name, e.created_at AS enrolled_at 
              FROM enrollments e 
              JOIN users u ON e.student_id = u.id 
              WHERE e.subject_id = $1 
@@ -107,12 +107,22 @@ export const getSubjectHistory = async (req: AuthRequest, res: Response): Promis
         }
 
         // 5. Build students list
-        const total = sessions.length;
         const students = enrolledStudents.map(student => {
             let presentCount = 0;
+            let studentTotal = 0;
             const records: Record<string, { status: 'APPROVED' | 'REJECTED' | 'PENDING' | null; edited: boolean; edit_reason: string | null }> = {};
 
             for (const session of sessions) {
+                if (student.enrolled_at && new Date(session.created_at).getTime() < new Date(student.enrolled_at).getTime()) {
+                    records[session.id] = {
+                        status: null,
+                        edited: false,
+                        edit_reason: null
+                    };
+                    continue;
+                }
+
+                studentTotal++;
                 const rec = recordsMap.get(`${student.user_id}:${session.id}`);
                 const status = (rec?.status as 'APPROVED' | 'REJECTED' | 'PENDING') || null;
 
@@ -127,14 +137,14 @@ export const getSubjectHistory = async (req: AuthRequest, res: Response): Promis
                 };
             }
 
-            const percentage = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+            const percentage = studentTotal > 0 ? Math.round((presentCount / studentTotal) * 100) : 0;
 
             return {
                 student_id: student.student_id || student.user_id,
                 user_id: student.user_id,
                 name: student.name,
                 present: presentCount,
-                total,
+                total: studentTotal,
                 percentage,
                 records
             };
@@ -340,10 +350,10 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
         const sessionHeaders = sessions.map(s => formatSessionHeader(new Date(s.created_at)));
 
         // Query students based on role
-        let students: Array<{ user_id: string; student_id: string; name: string }> = [];
+        let students: Array<{ user_id: string; student_id: string; name: string; enrolled_at: any }> = [];
         if (user.role === 'FACULTY') {
             const studentsRes = await pool.query(
-                `SELECT u.id AS user_id, u.student_id, u.name 
+                `SELECT u.id AS user_id, u.student_id, u.name, e.created_at AS enrolled_at 
                  FROM enrollments e 
                  JOIN users u ON e.student_id = u.id 
                  WHERE e.subject_id = $1 
@@ -354,10 +364,11 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
         } else {
             // STUDENT: ONLY their own row
             const studentRes = await pool.query(
-                `SELECT id AS user_id, student_id, name 
-                 FROM users 
-                 WHERE id = $1`,
-                [user.id]
+                `SELECT u.id AS user_id, u.student_id, u.name, e.created_at AS enrolled_at 
+                 FROM users u
+                 JOIN enrollments e ON e.student_id = u.id AND e.subject_id = $2
+                 WHERE u.id = $1`,
+                [user.id, id]
             );
             students = studentRes.rows;
         }
@@ -379,9 +390,16 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
 
         const rows = students.map(student => {
             let presentCount = 0;
+            let studentTotal = 0;
             const cells: string[] = [];
 
             for (const session of sessions) {
+                if (student.enrolled_at && new Date(session.created_at).getTime() < new Date(student.enrolled_at).getTime()) {
+                    cells.push('-');
+                    continue;
+                }
+
+                studentTotal++;
                 const status = recordsMap.get(`${student.user_id}:${session.id}`);
                 let text = 'A';
                 if (status === 'APPROVED') {
@@ -397,15 +415,14 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
                 cells.push(text);
             }
 
-            const total = sessions.length;
-            const percentage = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+            const percentage = studentTotal > 0 ? Math.round((presentCount / studentTotal) * 100) : 0;
 
             return {
                 student_id: student.student_id || student.user_id,
                 name: student.name,
                 cells,
                 present: presentCount,
-                total,
+                total: studentTotal,
                 percentage
             };
         });
@@ -420,3 +437,111 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+const publicSubjectIpBuckets = new Map<string, number[]>();
+
+function checkRateLimit(key: string, maxRequests: number, windowMs: number): boolean {
+    const now = Date.now();
+    const timestamps = (publicSubjectIpBuckets.get(key) || []).filter(ts => now - ts < windowMs);
+    if (timestamps.length >= maxRequests) {
+        publicSubjectIpBuckets.set(key, timestamps);
+        return false;
+    }
+    timestamps.push(now);
+    publicSubjectIpBuckets.set(key, timestamps);
+    return true;
+}
+
+function getClientIp(req: Request): string {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+        return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+export const getPublicSubjects = async (req: Request, res: Response): Promise<void> => {
+    const clientIp = getClientIp(req);
+    // Rate limit: 60/hour per IP
+    if (!checkRateLimit(`public_subjects:${clientIp}`, 60, 60 * 60 * 1000)) {
+        res.status(429).json({ message: 'Too many requests. Please try again later.' });
+        return;
+    }
+
+    try {
+        const subjectsRes = await pool.query(
+            `SELECT id, code, name 
+             FROM subjects 
+             ORDER BY name ASC`
+        );
+        res.status(200).json(subjectsRes.rows);
+    } catch (error) {
+        console.error('Error fetching public subjects:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const enrollSubject = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user?.id;
+        if (!studentId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        // Rate limit: 20/hour per user
+        if (!checkRateLimit(`enroll:${studentId}`, 20, 60 * 60 * 1000)) {
+            res.status(429).json({ message: 'Too many enrollment requests. Please try again later.' });
+            return;
+        }
+
+        const { subjectId } = req.body;
+        if (!subjectId || typeof subjectId !== 'string') {
+            res.status(400).json({ message: 'Subject ID is required' });
+            return;
+        }
+
+        // Subject must exist (400)
+        const subjectRes = await pool.query(
+            `SELECT id, code, name 
+             FROM subjects 
+             WHERE id = $1`,
+            [subjectId.trim()]
+        );
+
+        if (subjectRes.rowCount === 0) {
+            res.status(400).json({ message: 'Subject does not exist' });
+            return;
+        }
+
+        const targetSubjectId = subjectRes.rows[0].id;
+
+        // Get default class if exists
+        let classRes = await pool.query('SELECT id FROM classes LIMIT 1');
+        let classId = classRes.rows[0]?.id || null;
+
+        // INSERT ... ON CONFLICT DO NOTHING
+        await pool.query(
+            `INSERT INTO enrollments (student_id, subject_id, class_id, created_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (student_id, subject_id) DO NOTHING`,
+            [studentId, targetSubjectId, classId]
+        );
+
+        // Returns the student's updated enrolled subjects
+        const enrolledRes = await pool.query(
+            `SELECT s.id, s.code, s.name, e.created_at AS enrolled_at
+             FROM enrollments e
+             JOIN subjects s ON e.subject_id = s.id
+             WHERE e.student_id = $1
+             ORDER BY s.name ASC`,
+            [studentId]
+        );
+
+        res.status(200).json(enrolledRes.rows);
+    } catch (error) {
+        console.error('Error enrolling subject:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+

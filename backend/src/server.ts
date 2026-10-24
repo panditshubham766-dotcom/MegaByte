@@ -16,12 +16,28 @@ initFaceService().catch((err: any) => console.error('Error initializing face mod
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const defaultOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+const defaultOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://localhost:5173',
+    'https://localhost:5174'
+];
 const envOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map(o => o.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 const allowedOrigins = new Set([...defaultOrigins, ...envOrigins]);
+
+const isLocalOrPrivateIp = (hostname: string): boolean => {
+    return (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+        /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    );
+};
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -30,6 +46,12 @@ app.use(cors({
         if (allowedOrigins.has(normalized)) {
             return callback(null, true);
         }
+        try {
+            const url = new URL(normalized);
+            if (isLocalOrPrivateIp(url.hostname)) {
+                return callback(null, true);
+            }
+        } catch {}
         return callback(new Error('Not allowed by CORS'));
     }
 }));

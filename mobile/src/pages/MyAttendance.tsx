@@ -9,6 +9,9 @@ import {
   AlertCircle,
   FileSpreadsheet,
   ArrowLeft,
+  Plus,
+  X,
+  CheckCircle2,
 } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 
@@ -58,6 +61,15 @@ export default function MyAttendance() {
   const [sheetLoading, setSheetLoading] = useState(false);
   const [sheetError, setSheetError] = useState('');
 
+  // Add Subject Modal State
+  const [showAddSubjectModal, setShowAddSubjectModal] = useState(false);
+  const [publicSubjects, setPublicSubjects] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [loadingPublicSubjects, setLoadingPublicSubjects] = useState(false);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollSuccess, setEnrollSuccess] = useState('');
+  const [enrollError, setEnrollError] = useState('');
+
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   const fetchAttendance = useCallback(async () => {
@@ -101,6 +113,95 @@ export default function MyAttendance() {
       setLoading(false);
     }
   }, [navigate]);
+
+  const openAddSubjectModal = async () => {
+    setShowAddSubjectModal(true);
+    setSelectedSubjectId('');
+    setEnrollSuccess('');
+    setEnrollError('');
+    setLoadingPublicSubjects(true);
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_URL}/api/subjects/public`);
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('Server unreachable, please try again');
+      }
+      if (!res.ok || !Array.isArray(data)) {
+        throw new Error('Could not load subjects, try again');
+      }
+      setPublicSubjects(data);
+    } catch (err: any) {
+      setEnrollError(err.message || 'Could not load subjects, try again');
+    } finally {
+      setLoadingPublicSubjects(false);
+    }
+  };
+
+  const closeAddSubjectModal = () => {
+    if (enrolling) return;
+    setShowAddSubjectModal(false);
+    setSelectedSubjectId('');
+    setEnrollSuccess('');
+    setEnrollError('');
+  };
+
+  const handleEnrollSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSubjectId) {
+      setEnrollError('Please select a subject to enroll.');
+      return;
+    }
+
+    setEnrolling(true);
+    setEnrollError('');
+    setEnrollSuccess('');
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_URL}/api/subjects/enroll`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ subjectId: selectedSubjectId }),
+      });
+
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('Server unreachable, please try again');
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.message || 'Failed to enroll in subject');
+      }
+
+      setEnrollSuccess('Successfully enrolled!');
+      // Refresh page data after enrolling
+      await fetchAttendance();
+
+      setTimeout(() => {
+        setShowAddSubjectModal(false);
+        setEnrollSuccess('');
+        setSelectedSubjectId('');
+      }, 1000);
+    } catch (err: any) {
+      setEnrollError(err.message || 'Failed to enroll in subject');
+    } finally {
+      setEnrolling(false);
+    }
+  };
 
   useEffect(() => {
     fetchAttendance();
@@ -426,6 +527,14 @@ export default function MyAttendance() {
               </p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={openAddSubjectModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add subject</span>
+          </button>
         </div>
 
         {error && (
@@ -442,10 +551,18 @@ export default function MyAttendance() {
             <p className="text-xs font-semibold">Loading your attendance records...</p>
           </div>
         ) : subjects.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-xs text-center text-slate-500 space-y-2">
+          <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-xs text-center text-slate-500 space-y-3">
             <CalendarCheck className="h-10 w-10 text-slate-300 mx-auto" />
             <h3 className="text-sm font-bold text-slate-900">No enrolled subjects</h3>
             <p className="text-xs text-slate-500">You are not currently enrolled in any subjects.</p>
+            <button
+              type="button"
+              onClick={openAddSubjectModal}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-colors mx-auto"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add subject</span>
+            </button>
           </div>
         ) : (
           <div className="space-y-3.5">
@@ -559,6 +676,112 @@ export default function MyAttendance() {
           </div>
         )}
       </div>
+
+      {/* Add Subject Modal */}
+      {showAddSubjectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-[360px] bg-white rounded-2xl p-6 border border-slate-200/80 shadow-[0_4px_24px_-4px_rgba(15,23,42,0.1)] space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Add Subject</h3>
+                <p className="text-[11px] text-slate-500">Enroll in another subject</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAddSubjectModal}
+                disabled={enrolling}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {enrollSuccess && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                <span>{enrollSuccess}</span>
+              </div>
+            )}
+
+            {enrollError && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-600 px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0 mt-0.5" />
+                <span>{enrollError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleEnrollSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Available Subjects
+                </label>
+                {loadingPublicSubjects ? (
+                  <div className="h-11 flex items-center justify-center border border-slate-200 rounded-xl bg-slate-50 text-xs text-slate-500">
+                    <RefreshCw className="h-4 w-4 animate-spin text-blue-600 mr-2" />
+                    Loading subjects...
+                  </div>
+                ) : (
+                  (() => {
+                    const availableSubjects = publicSubjects.filter(
+                      (ps) => !subjects.some((s) => s.subject_id === ps.id)
+                    );
+
+                    if (availableSubjects.length === 0) {
+                      return (
+                        <div className="p-3 border border-slate-200 rounded-xl bg-slate-50 text-xs text-slate-500 text-center">
+                          You are already enrolled in all available subjects.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <select
+                        required
+                        value={selectedSubjectId}
+                        onChange={(e) => setSelectedSubjectId(e.target.value)}
+                        disabled={enrolling}
+                        className="w-full h-11 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 transition-all disabled:opacity-50"
+                      >
+                        <option value="" disabled>
+                          Select a subject
+                        </option>
+                        {availableSubjects.map((sub) => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.code} - {sub.name}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={closeAddSubjectModal}
+                  disabled={enrolling}
+                  className="flex-1 h-11 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    enrolling ||
+                    !selectedSubjectId ||
+                    publicSubjects.filter((ps) => !subjects.some((s) => s.subject_id === ps.id)).length === 0
+                  }
+                  className="flex-1 h-11 flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {enrolling ? 'Enrolling...' : 'Confirm'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Persistent Bottom Navigation */}
       <BottomNav activeTab="records" />

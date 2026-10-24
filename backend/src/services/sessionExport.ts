@@ -40,14 +40,14 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
 
     const session = sessionRes.rows[0];
 
-    // 1. Fetch students enrolled in the session's subject
+    // 1. Fetch students enrolled in the session's subject prior to or at session creation
     const enrolledRes = await pool.query(
         `SELECT u.id AS user_id, u.student_id, u.name, u.email
          FROM enrollments e
          JOIN users u ON e.student_id = u.id
-         WHERE e.subject_id = $1
+         WHERE e.subject_id = $1 AND e.created_at <= $2
          ORDER BY u.student_id ASC, u.name ASC`,
-        [session.subject_id]
+        [session.subject_id, session.created_at]
     );
 
     interface ExportRow {
