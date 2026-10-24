@@ -16,7 +16,23 @@ initFaceService().catch((err: any) => console.error('Error initializing face mod
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const defaultOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+const envOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+const allowedOrigins = new Set([...defaultOrigins, ...envOrigins]);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        const normalized = origin.trim().replace(/\/+$/, '');
+        if (allowedOrigins.has(normalized)) {
+            return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+    }
+}));
 app.use(express.json({ limit: '10mb' }));
 
 app.use('/api/auth', authRoutes);
