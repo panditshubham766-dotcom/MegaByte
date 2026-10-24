@@ -172,8 +172,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
         { header: 'name', key: 'name', width: 24 },
         { header: 'email', key: 'email', width: 30 },
         { header: 'status', key: 'status', width: 14 },
-        { header: 'submitted_at', key: 'submitted_at', width: 22 },
-        { header: 'reviewed_at', key: 'reviewed_at', width: 22 },
+        { header: 'submitted_at (UTC)', key: 'submitted_at', width: 22 },
+        { header: 'reviewed_at (UTC)', key: 'reviewed_at', width: 22 },
         { header: 'face_match_score', key: 'face_match_score', width: 18 },
         { header: 'liveness_score', key: 'liveness_score', width: 18 },
     ];

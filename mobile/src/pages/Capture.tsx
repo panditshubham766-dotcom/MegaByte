@@ -545,7 +545,7 @@ export default function StudentCapture() {
             <form onSubmit={handleStartFaceCheck} className="space-y-5">
               <div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-center mb-2.5">
-                  6-Digit Session Code
+                  6-Character Session Code
                 </label>
                 <div className="flex justify-between gap-1.5 sm:gap-2 max-w-[300px] mx-auto">
                   {digits.map((digit, idx) => (
