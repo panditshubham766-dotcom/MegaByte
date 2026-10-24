@@ -8,7 +8,7 @@ const pool = new Pool({
     ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false }
 });
 
-console.log('DB connecting to URL:', process.env.DATABASE_URL);
+console.log('DB connecting...');
 
 pool.on('error', (err) => {
     console.error('Unexpected error on idle client', err);
