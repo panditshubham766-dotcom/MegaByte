@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Check, X, ArrowLeft, RefreshCw, Download, Users, LogOut } from 'lucide-react';
+import { Check, X, ArrowLeft, RefreshCw, Download, Users, LogOut, AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface PendingSubmission {
   record_id: string;
@@ -32,6 +32,15 @@ export default function FacultyReview() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
   const [, setTick] = useState(0);
+
+  // Approve all state
+  const [showApproveAllModal, setShowApproveAllModal] = useState(false);
+  const [targetRecordIds, setTargetRecordIds] = useState<string[]>([]);
+  const [lowMatchCount, setLowMatchCount] = useState<number>(0);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+  const [approveAllError, setApproveAllError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const cancelBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const serverOffsetRef = useRef<number>(0);
 
@@ -176,6 +185,67 @@ export default function FacultyReview() {
     }
   };
 
+  useEffect(() => {
+    if (showApproveAllModal) {
+      const timer = setTimeout(() => {
+        cancelBtnRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [showApproveAllModal]);
+
+  const handleOpenApproveAllModal = () => {
+    const ids = submissions.map(sub => sub.record_id);
+    const lowMatch = submissions.filter(
+      sub => sub.face_match_score !== undefined && sub.face_match_score !== null && sub.face_match_score < 0.70
+    ).length;
+    setTargetRecordIds(ids);
+    setLowMatchCount(lowMatch);
+    setApproveAllError('');
+    setShowApproveAllModal(true);
+  };
+
+  const handleConfirmApproveAll = async () => {
+    if (isApprovingAll || !currentSessionId || targetRecordIds.length === 0) return;
+    setIsApprovingAll(true);
+    setApproveAllError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/attendance/review/approve-all`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          sessionId: currentSessionId,
+          recordIds: targetRecordIds
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to approve submissions');
+      }
+
+      setShowApproveAllModal(false);
+      fetchPending();
+      const count = typeof data.approved === 'number' ? data.approved : targetRecordIds.length;
+      setSuccessMessage(`Approved ${count} students`);
+      setTimeout(() => {
+        setSuccessMessage('');
+      }, 5000);
+    } catch (err: any) {
+      console.error('Error approving all submissions:', err);
+      setApproveAllError(err.message || 'Failed to approve submissions');
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -295,6 +365,17 @@ export default function FacultyReview() {
               <Download className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
               {downloading ? 'Downloading...' : 'Download Excel'}
             </button>
+            {submissions.length > 0 && (
+              <button
+                type="button"
+                onClick={handleOpenApproveAllModal}
+                className="clay-btn clay-btn-success px-4 py-2.5 text-xs rounded-full flex items-center"
+                title="Approve all currently pending submissions"
+              >
+                <Check className="h-3.5 w-3.5 mr-1.5" />
+                Approve all ({submissions.length})
+              </button>
+            )}
             {sessionInfo?.status === 'ACTIVE' ? (
               <div className="clay-chip clay-chip-success">
                 <RefreshCw className="h-3 w-3 mr-1.5 animate-spin" />
@@ -307,6 +388,22 @@ export default function FacultyReview() {
             )}
           </div>
         </div>
+
+        {successMessage && (
+          <div className="clay-chip-success px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Check className="h-4 w-4 text-[#16A34A] flex-shrink-0" />
+              <span>{successMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuccessMessage('')}
+              className="p-1 rounded-full hover:bg-black/5 text-[#16A34A]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full">
@@ -400,6 +497,78 @@ export default function FacultyReview() {
           </div>
         )}
       </main>
+
+      {/* Approve All Confirmation Modal */}
+      {showApproveAllModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full overflow-hidden text-left">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200/60">
+              <div className="flex items-center gap-2 text-[#16A34A]">
+                <Check className="h-5 w-5" />
+                <h3 className="text-base font-extrabold text-[#1B1640]">Approve all submissions?</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isApprovingAll && setShowApproveAllModal(false)}
+                disabled={isApprovingAll}
+                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 disabled:opacity-50 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm font-semibold text-[#5B5F8A]">
+                This will mark {targetRecordIds.length} students as present. You can still edit any of them later.
+              </p>
+
+              {lowMatchCount > 0 && (
+                <div className="clay-chip-warning px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-600" />
+                  <span>
+                    {lowMatchCount} of them have a match below 70%. Review those first if unsure.
+                  </span>
+                </div>
+              )}
+
+              {approveAllError && (
+                <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>{approveAllError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200/60">
+              <button
+                ref={cancelBtnRef}
+                autoFocus
+                type="button"
+                onClick={() => setShowApproveAllModal(false)}
+                disabled={isApprovingAll}
+                className="px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmApproveAll}
+                disabled={isApprovingAll}
+                className="px-4 py-2.5 clay-btn clay-btn-success text-xs rounded-full disabled:opacity-50 flex items-center gap-2"
+              >
+                {isApprovingAll ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Approving...</span>
+                  </>
+                ) : (
+                  `Yes, approve ${targetRecordIds.length}`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
