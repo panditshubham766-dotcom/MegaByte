@@ -22,7 +22,7 @@ export default function FacultyDashboard() {
   }[]>([]);
   const [selectedClassroomId, setSelectedClassroomId] = useState<string>('');
   const [showAddClassroomModal, setShowAddClassroomModal] = useState(false);
-  const [newName, setNewName] = useState('');
+  const [newRoomName, setNewRoomName] = useState('');
   const [newBuilding, setNewBuilding] = useState('');
   const [newLat, setNewLat] = useState('');
   const [newLon, setNewLon] = useState('');
@@ -31,6 +31,7 @@ export default function FacultyDashboard() {
   const [newPolicy, setNewPolicy] = useState<'GPS_ONLY' | 'WIFI_ONLY' | 'GPS_OR_WIFI' | 'GPS_AND_WIFI'>('GPS_ONLY');
   const [newBssid, setNewBssid] = useState('');
   const [newSsid, setNewSsid] = useState('');
+  const [classroomError, setClassroomError] = useState('');
   const [savingClassroom, setSavingClassroom] = useState(false);
   const [locatingDevice, setLocatingDevice] = useState(false);
   const navigate = useNavigate();
@@ -77,13 +78,14 @@ export default function FacultyDashboard() {
         const token = localStorage.getItem('token');
         const API_URL = import.meta.env.VITE_API_URL || '';
         const response = await fetch(`${API_URL}/api/classrooms`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+          headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {
           const data = await response.json();
           setClassrooms(data);
+          if (data.length > 0 && !selectedClassroomId) {
+            setSelectedClassroomId(data[0].id);
+          }
         }
       } catch (e) {
         console.error('Error fetching classrooms:', e);
@@ -93,6 +95,7 @@ export default function FacultyDashboard() {
     checkActiveSession();
     fetchSubjects();
     fetchClassrooms();
+
   }, [navigate]);
 
   const handleSubjectHistory = () => {
@@ -126,111 +129,6 @@ export default function FacultyDashboard() {
     return parts.join(' ');
   };
 
-  const handleGetCurrentLocation = () => {
-    if (!('geolocation' in navigator)) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
-    setLocatingDevice(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setNewLat(pos.coords.latitude.toFixed(6));
-        setNewLon(pos.coords.longitude.toFixed(6));
-        if (pos.coords.accuracy) {
-          setNewAccuracy(Math.min(50, Math.max(10, Math.round(pos.coords.accuracy))).toString());
-        }
-        setLocatingDevice(false);
-      },
-      (err) => {
-        alert(`Could not fetch device location: ${err.message}`);
-        setLocatingDevice(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  };
-
-  const handleSaveClassroom = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName.trim() || !newLat || !newLon) {
-      alert('Please enter Classroom Name, Latitude, and Longitude');
-      return;
-    }
-    const lat = parseFloat(newLat);
-    const lon = parseFloat(newLon);
-    if (isNaN(lat) || lat < -90 || lat > 90) {
-      alert('Latitude must be between -90 and 90');
-      return;
-    }
-    if (isNaN(lon) || lon < -180 || lon > 180) {
-      alert('Longitude must be between -180 and 180');
-      return;
-    }
-
-    setSavingClassroom(true);
-    try {
-      const token = localStorage.getItem('token');
-      const API_URL = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${API_URL}/api/classrooms`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: newName.trim(),
-          building: newBuilding.trim() || null,
-          latitude: lat,
-          longitude: lon,
-          radius_meters: parseInt(newRadius, 10) || 100,
-          max_accuracy_meters: parseInt(newAccuracy, 10) || 30,
-          verification_policy: newPolicy,
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to create classroom');
-      }
-
-      // If BSSID provided, register approved access point
-      if (newBssid.trim()) {
-        try {
-          await fetch(`${API_URL}/api/classrooms/${data.id}/access-points`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              bssid: newBssid.trim(),
-              ssid: newSsid.trim() || null,
-              description: 'Primary classroom AP',
-            })
-          });
-        } catch (apErr) {
-          console.warn('Could not register initial AP:', apErr);
-        }
-      }
-
-      setClassrooms((prev) => [...prev, data]);
-      setSelectedClassroomId(data.id);
-      setShowAddClassroomModal(false);
-      setNewName('');
-      setNewBuilding('');
-      setNewLat('');
-      setNewLon('');
-      setNewRadius('100');
-      setNewAccuracy('30');
-      setNewPolicy('GPS_ONLY');
-      setNewBssid('');
-      setNewSsid('');
-    } catch (err: any) {
-      alert(err.message || 'Failed to save classroom');
-    } finally {
-      setSavingClassroom(false);
-    }
-  };
-
   const handleCreateSession = async () => {
     setLoading(true);
     try {
@@ -243,10 +141,7 @@ export default function FacultyDashboard() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          durationSeconds: chosenSeconds,
-          classroom_id: selectedClassroomId || null,
-        })
+        body: JSON.stringify({ durationSeconds: chosenSeconds })
       });
 
       const data = await response.json();
@@ -264,6 +159,75 @@ export default function FacultyDashboard() {
       alert(error.message || 'Failed to create session. Check console.');
     } finally {
       setLoading(false);
+    }
+  };
+
+
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setClassroomError('Geolocation is not supported by your browser');
+      return;
+    }
+    setLocatingDevice(true);
+    setClassroomError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewLat(pos.coords.latitude.toFixed(6));
+        setNewLon(pos.coords.longitude.toFixed(6));
+        setLocatingDevice(false);
+      },
+      (err) => {
+        setLocatingDevice(false);
+        setClassroomError(`Location error: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const handleAddClassroom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setClassroomError('');
+    setSavingClassroom(true);
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_URL}/api/classrooms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: newRoomName.trim(),
+          building: newBuilding.trim() || undefined,
+          latitude: parseFloat(newLat),
+          longitude: parseFloat(newLon),
+          radius_meters: parseInt(newRadius, 10) || 100,
+          max_accuracy_meters: parseInt(newAccuracy, 10) || 30,
+          verification_policy: newPolicy,
+          bssid: newBssid.trim() || undefined,
+          ssid: newSsid.trim() || undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to create classroom');
+      }
+
+      setClassrooms(prev => [data, ...prev]);
+      setSelectedClassroomId(data.id);
+      setShowAddClassroomModal(false);
+      setNewRoomName('');
+      setNewBuilding('');
+      setNewLat('');
+      setNewLon('');
+      setNewBssid('');
+      setNewSsid('');
+    } catch (err: any) {
+      setClassroomError(err.message || 'Error saving classroom');
+    } finally {
+      setSavingClassroom(false);
     }
   };
 
@@ -522,69 +486,74 @@ export default function FacultyDashboard() {
           </div>
         </div>
       )}
+
       {/* Add Classroom Modal */}
       {showAddClassroomModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-gray-200 p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-indigo-600" />
-                <h3 className="text-lg font-bold text-gray-900">Add Physical Classroom</h3>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="clay-card max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#1B1640]">Register New Classroom Geofence</h3>
+                <p className="text-xs font-semibold text-[#5B5F8A]">Define geographic boundary & verification policy</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddClassroomModal(false)}
-                className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveClassroom} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Classroom Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Lecture Hall 101"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm focus:ring-blue-500 focus:border-blue-500"
-                />
+            {classroomError && (
+              <div className="clay-chip-danger px-3 py-2 rounded-2xl text-xs font-bold w-full">
+                {classroomError}
+              </div>
+            )}
+
+            <form onSubmit={handleAddClassroom} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label-clay block mb-1">Classroom / Hall Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Hall A, CS Lab 102"
+                    value={newRoomName}
+                    onChange={(e) => setNewRoomName(e.target.value)}
+                    className="clay-input text-xs w-full px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="label-clay block mb-1">Building / Wing</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Science Block"
+                    value={newBuilding}
+                    onChange={(e) => setNewBuilding(e.target.value)}
+                    className="clay-input text-xs w-full px-3 py-2"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Building / Block (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Science Block C"
-                  value={newBuilding}
-                  onChange={(e) => setNewBuilding(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+              <div className="clay-card-flat p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-700">GPS Coordinates (WGS-84)</span>
+                  <span className="text-xs font-extrabold text-[#1B1640] flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4 text-[#5B4BF0]" /> Coordinates (WGS84 GPS)
+                  </span>
                   <button
                     type="button"
-                    onClick={handleGetCurrentLocation}
+                    onClick={getCurrentLocation}
                     disabled={locatingDevice}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                    className="clay-btn clay-btn-secondary px-3 py-1 text-xs rounded-full disabled:opacity-50"
                   >
-                    {locatingDevice ? 'Acquiring GPS...' : '📍 Use Current Device Location'}
+                    {locatingDevice ? 'Locating...' : 'Use Current Device GPS'}
                   </button>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
-                      Latitude (-90 to 90) *
-                    </label>
+                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">Latitude *</label>
                     <input
                       type="number"
                       step="any"
@@ -592,13 +561,11 @@ export default function FacultyDashboard() {
                       placeholder="12.971598"
                       value={newLat}
                       onChange={(e) => setNewLat(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm font-mono"
+                      className="clay-input text-xs w-full px-3 py-2 font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
-                      Longitude (-180 to 180) *
-                    </label>
+                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">Longitude *</label>
                     <input
                       type="number"
                       step="any"
@@ -606,7 +573,7 @@ export default function FacultyDashboard() {
                       placeholder="77.594566"
                       value={newLon}
                       onChange={(e) => setNewLon(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm font-mono"
+                      className="clay-input text-xs w-full px-3 py-2 font-mono"
                     />
                   </div>
                 </div>
@@ -614,43 +581,37 @@ export default function FacultyDashboard() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Geofence Radius (meters)
-                  </label>
+                  <label className="label-clay block mb-1">Geofence Radius (meters)</label>
                   <input
                     type="number"
                     min={1}
                     max={5000}
                     value={newRadius}
                     onChange={(e) => setNewRadius(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm font-mono"
+                    className="clay-input text-xs w-full px-3 py-2 font-mono"
                   />
-                  <span className="text-[10px] text-gray-500">Default: 100 meters</span>
+                  <span className="text-[10px] text-[#5B5F8A] font-semibold">Default: 100 meters</span>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Max GPS Accuracy (meters)
-                  </label>
+                  <label className="label-clay block mb-1">Max GPS Accuracy (meters)</label>
                   <input
                     type="number"
                     min={1}
                     max={500}
                     value={newAccuracy}
                     onChange={(e) => setNewAccuracy(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm font-mono"
+                    className="clay-input text-xs w-full px-3 py-2 font-mono"
                   />
-                  <span className="text-[10px] text-gray-500">Default: 30 meters</span>
+                  <span className="text-[10px] text-[#5B5F8A] font-semibold">Default: 30 meters</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Presence Verification Policy
-                </label>
+                <label className="label-clay block mb-1">Presence Verification Policy</label>
                 <select
                   value={newPolicy}
                   onChange={(e) => setNewPolicy(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md sm:text-sm bg-white"
+                  className="clay-input text-xs w-full px-3 py-2"
                 >
                   <option value="GPS_ONLY">GPS Geofencing Only (Standard)</option>
                   <option value="GPS_OR_WIFI">GPS Geofence OR Approved Wi-Fi (Recommended for indoor reliability)</option>
@@ -659,28 +620,28 @@ export default function FacultyDashboard() {
                 </select>
               </div>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                <span className="text-xs font-bold text-slate-700">Optional: Register Approved Wi-Fi Access Point</span>
-                <p className="text-[11px] text-slate-500">Never store or expose router passwords. Register radio hardware BSSIDs.</p>
+              <div className="clay-card-flat p-3.5 space-y-2">
+                <span className="text-xs font-extrabold text-[#1B1640]">Optional: Register Approved Wi-Fi Access Point</span>
+                <p className="text-[11px] text-[#5B5F8A] font-medium">Never store or expose router passwords. Register radio hardware BSSIDs.</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-500 mb-0.5">BSSID (MAC Address)</label>
+                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">BSSID (MAC Address)</label>
                     <input
                       type="text"
                       placeholder="e.g. 00:14:22:01:23:45"
                       value={newBssid}
                       onChange={(e) => setNewBssid(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono"
+                      className="clay-input text-xs w-full px-3 py-1.5 font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-500 mb-0.5">SSID Network Name</label>
+                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">SSID Network Name</label>
                     <input
                       type="text"
                       placeholder="e.g. Campus-Secure"
                       value={newSsid}
                       onChange={(e) => setNewSsid(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
+                      className="clay-input text-xs w-full px-3 py-1.5"
                     />
                   </div>
                 </div>
@@ -690,14 +651,14 @@ export default function FacultyDashboard() {
                 <button
                   type="button"
                   onClick={() => setShowAddClassroomModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 clay-btn clay-btn-secondary text-xs rounded-full"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingClassroom}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+                  className="px-5 py-2 clay-btn clay-btn-primary text-xs font-extrabold rounded-full disabled:opacity-50"
                 >
                   {savingClassroom ? 'Saving...' : 'Save Classroom'}
                 </button>

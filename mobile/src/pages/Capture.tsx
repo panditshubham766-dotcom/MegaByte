@@ -560,28 +560,29 @@ export default function MobileStudentCapture() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-between safe-pt pb-24 font-sans">
+    <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-28">
+      {/* Hidden canvas for un-mirrored frame capture */}
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Main Content Area */}
       <div className="w-full max-w-[360px] sm:max-w-md mx-auto px-4 py-4 space-y-4">
         {/* Top Header */}
-        <header className="flex items-center justify-between bg-white px-4 py-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+        <header className="flex items-center justify-between clay-topbar px-4 py-2.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#0F172A] text-white font-black text-sm rounded-xl flex items-center justify-center select-none shadow-xs">
+            <div className="w-8 h-8 rounded-xl clay-tile text-[#5B4BF0] font-black text-sm flex items-center justify-center select-none shadow-xs">
               M
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 leading-tight">MegaByte</h2>
-              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
-                {overallStatus === 'PASSED' ? 'Verified' : overallStatus === 'REJECTED' ? 'Verification Failed' : overallStatus === 'IN_PROGRESS' ? 'Verifying...' : 'Classroom Check-in'}
+              <h2 className="text-sm font-extrabold text-[#1B1640] leading-tight">MegaByte</h2>
+              <span className="text-[10px] uppercase tracking-wider text-[#5B6190] font-extrabold">
+                {overallStatus === 'PASSED' ? 'Verified' : overallStatus === 'REJECTED' ? 'Verification Failed' : overallStatus === 'IN_PROGRESS' ? 'Verifying...' : 'Student Portal'}
               </span>
             </div>
           </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="flex items-center gap-1 min-h-[44px] min-w-[44px] justify-center text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+            className="flex items-center gap-1 min-h-[44px] min-w-[44px] justify-center text-[#5B6190] hover:text-[#F43F5E] transition-colors cursor-pointer"
             title="Log out"
             aria-label="Log out"
           >
@@ -591,17 +592,17 @@ export default function MobileStudentCapture() {
 
         {/* Assigned Classroom & Session Banner */}
         {sessionInfo && (
-          <div className="bg-slate-900 text-white p-3.5 rounded-2xl border border-slate-800 shadow-sm space-y-1 animate-in fade-in duration-200">
+          <div className="clay-card p-4 space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded-full border border-blue-400/30">
+              <span className="clay-chip clay-chip-pressed text-[9px]">
                 Assigned Classroom
               </span>
-              <span className="text-[11px] font-mono font-bold text-slate-300">
+              <span className="text-[11px] font-mono font-extrabold text-[#1B1640]">
                 Code: {sessionInfo.sessionCode}
               </span>
             </div>
-            <h3 className="text-sm font-bold text-white">{sessionInfo.classroomName}</h3>
-            <p className="text-[11px] text-slate-400">
+            <h3 className="text-sm font-extrabold text-[#1B1640]">{sessionInfo.classroomName}</h3>
+            <p className="text-[11px] font-semibold text-[#5B6190]">
               {sessionInfo.subjectName} {sessionInfo.className ? `• ${sessionInfo.className}` : ''}
             </p>
           </div>
@@ -609,34 +610,34 @@ export default function MobileStudentCapture() {
 
         {/* STEP 3: RESULT SCREEN */}
         {flowStage === 'RESULT' && (
-          <div className="clay-card p-6 text-center space-y-4 animate-in fade-in duration-200">
+          <div className="clay-card p-6 text-center space-y-5">
             {success ? (
               <>
-                <div className="w-16 h-16 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-center mx-auto text-[#16A34A]">
-                  <CheckCircle className="h-10 w-10" />
+                <div className="w-16 h-16 rounded-2xl clay-tile text-[#065F46] flex items-center justify-center mx-auto">
+                  <CheckCircle className="h-9 w-9 text-[#34D399]" />
                 </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 inline-block">
+                <div className="space-y-1.5">
+                  <span className="clay-chip clay-chip-success">
                     Server Verified
                   </span>
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-extrabold text-[#1B1640]">
                     Attendance Submitted Successfully
                   </h3>
-                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                  <p className="text-xs font-semibold text-[#5B6190] max-w-xs mx-auto">
                     GPS Geofence, Wi-Fi policy, and Biometric Liveness confirmed by server.
                   </p>
                 </div>
 
                 {verificationToken && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-left space-y-1 text-xs">
-                    <div className="flex justify-between text-slate-500 font-mono text-[11px]">
+                  <div className="p-3 clay-card-flat text-left space-y-1 text-xs">
+                    <div className="flex justify-between text-[#5B6190] font-mono text-[11px]">
                       <span>Token:</span>
-                      <span className="text-emerald-600 font-semibold">{verificationToken.slice(0, 16)}...</span>
+                      <span className="text-emerald-600 font-bold">{verificationToken.slice(0, 16)}...</span>
                     </div>
                     {faceStatus.matchScore !== undefined && (
-                      <div className="flex justify-between text-slate-500 text-[11px]">
+                      <div className="flex justify-between text-[#5B6190] text-[11px]">
                         <span>Face Match:</span>
-                        <span className="font-semibold text-slate-800">{Math.round(faceStatus.matchScore * 100)}%</span>
+                        <span className="font-bold text-[#1B1640]">{Math.round(faceStatus.matchScore * 100)}%</span>
                       </div>
                     )}
                   </div>
@@ -646,7 +647,7 @@ export default function MobileStudentCapture() {
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="w-full h-11 flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
+                    className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full flex items-center justify-center cursor-pointer"
                   >
                     Done & Log Out
                   </button>
@@ -654,33 +655,33 @@ export default function MobileStudentCapture() {
               </>
             ) : (
               <>
-                <div className="w-16 h-16 bg-rose-50 rounded-2xl border border-rose-100 flex items-center justify-center mx-auto text-[#DC2626]">
-                  <ShieldAlert className="h-10 w-10" />
+                <div className="w-16 h-16 rounded-2xl clay-tile text-[#F43F5E] flex items-center justify-center mx-auto">
+                  <ShieldAlert className="h-9 w-9 text-[#F43F5E]" />
                 </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200 inline-block">
+                <div className="space-y-1.5">
+                  <span className="clay-chip clay-chip-danger">
                     Verification Failed
                   </span>
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-extrabold text-[#1B1640]">
                     Presence Check Incomplete
                   </h3>
                 </div>
 
-                <div className="bg-rose-50/60 rounded-xl border border-rose-200 p-3.5 text-left space-y-2">
+                <div className="clay-card-flat p-3.5 text-left space-y-2">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                    <AlertCircle className="h-4 w-4 text-[#F43F5E] shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-xs font-semibold text-rose-700">{errorMessage}</p>
+                      <p className="text-xs font-bold text-[#F43F5E]">{errorMessage}</p>
                       {errorCode && (
-                        <span className="text-[10px] font-mono text-rose-500 block mt-0.5">
+                        <span className="text-[10px] font-mono text-[#F43F5E]/80 block mt-0.5">
                           Code: {errorCode}
                         </span>
                       )}
                     </div>
                   </div>
                   {retryHint && (
-                    <div className="pt-2 border-t border-rose-200/80 text-[11px] text-rose-800 flex items-start gap-1.5">
-                      <Info className="h-3.5 w-3.5 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="pt-2 border-t border-slate-200 text-[11px] text-[#5B6190] flex items-start gap-1.5">
+                      <Info className="h-3.5 w-3.5 text-[#5B4BF0] shrink-0 mt-0.5" />
                       <span>{retryHint}</span>
                     </div>
                   )}
@@ -690,7 +691,7 @@ export default function MobileStudentCapture() {
                   <button
                     type="button"
                     onClick={handleTryAgain}
-                    className="flex-1 h-11 flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-xs font-semibold rounded-xl shadow-xs transition-all cursor-pointer gap-1.5"
+                    className="flex-1 h-12 clay-btn clay-btn-primary text-xs font-extrabold rounded-full flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                     Try Again
@@ -698,7 +699,7 @@ export default function MobileStudentCapture() {
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="h-11 px-4 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                    className="h-12 px-5 clay-btn clay-btn-secondary text-xs font-extrabold rounded-full flex items-center justify-center cursor-pointer"
                   >
                     Logout
                   </button>
@@ -712,77 +713,77 @@ export default function MobileStudentCapture() {
         <div
           className={
             flowStage === 'VERIFYING'
-              ? 'bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm space-y-5 text-center animate-in fade-in duration-200'
+              ? 'clay-card p-6 space-y-6 text-center'
               : 'fixed -left-[9999px] -top-[9999px] w-[320px] pointer-events-none'
           }
         >
           {/* Status Instruction Heading */}
-          <div className="min-h-[50px] flex flex-col items-center justify-center">
+          <div className="min-h-[56px] flex flex-col items-center justify-center">
             {subStep === 'PROBING_SENSORS' && (
-              <div className="flex items-center gap-2 text-slate-700 font-semibold text-xs">
-                <Loader2 className="h-4 w-4 animate-spin text-[#2563EB]" />
+              <div className="flex items-center gap-2 text-[#1B1640] font-bold text-xs">
+                <Loader2 className="h-4 w-4 animate-spin text-[#5B4BF0]" />
                 <span>Checking classroom GPS & policy...</span>
               </div>
             )}
 
             {subStep === 'LOOK_STRAIGHT' && (
-              <div className="space-y-0.5">
-                <h3 className="text-xl font-extrabold text-[#0F172A] tracking-tight">
+              <div className="space-y-1">
+                <h3 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">
                   Look straight
                 </h3>
-                <p className="text-[11px] text-slate-500 font-medium">
+                <p className="text-xs text-[#5B6190] font-semibold">
                   Center face directly at camera
                 </p>
               </div>
             )}
 
             {subStep === 'TURN_HEAD' && challengeAction && (
-              <div className="space-y-0.5">
-                <h3 className="text-xl font-extrabold text-[#D97706] tracking-tight flex items-center justify-center gap-1.5">
+              <div className="space-y-1">
+                <h3 className="text-2xl font-extrabold text-[#D97706] tracking-tight flex items-center justify-center gap-2">
                   {challengeAction === 'TURN_LEFT' ? (
                     <>
-                      <ArrowLeft className="h-5 w-5 animate-pulse" />
+                      <ArrowLeft className="h-6 w-6 animate-pulse" />
                       <span>Turn head to YOUR LEFT</span>
                     </>
                   ) : (
                     <>
                       <span>Turn head to YOUR RIGHT</span>
-                      <ArrowRight className="h-5 w-5 animate-pulse" />
+                      <ArrowRight className="h-6 w-6 animate-pulse" />
                     </>
                   )}
                 </h3>
-                <p className="text-[11px] text-slate-500 font-medium">
+                <p className="text-xs text-[#5B6190] font-semibold">
                   Slowly rotate head until check finishes
                 </p>
               </div>
             )}
 
             {subStep === 'SUBMITTING' && (
-              <div className="flex items-center gap-2 text-slate-700 font-semibold text-xs">
-                <Loader2 className="h-4 w-4 animate-spin text-[#16A34A]" />
+              <div className="flex items-center gap-2 text-[#1B1640] font-bold text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-[#34D399]" />
                 <span>Verifying biometrics & presence on server...</span>
               </div>
             )}
           </div>
 
           {/* Viewfinder Circle */}
-          <div className="relative w-60 h-60 sm:w-64 sm:h-64 mx-auto">
-            <div className="absolute -inset-2 rounded-full border-4 border-slate-100 overflow-hidden" />
+          <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto">
+            <div className="absolute -inset-2 rounded-full border-4 border-slate-200/50 overflow-hidden" />
             <div
               className="absolute -inset-2 rounded-full border-4 border-transparent transition-all duration-300"
               style={{
-                borderTopColor: subStep === 'TURN_HEAD' ? '#D97706' : '#2563EB',
+                borderTopColor: subStep === 'TURN_HEAD' ? '#D97706' : '#5B4BF0',
                 borderRightColor:
                   progressPercent > 50
                     ? subStep === 'TURN_HEAD'
                       ? '#D97706'
-                      : '#2563EB'
+                      : '#5B4BF0'
                     : 'transparent',
                 transform: `rotate(${progressPercent * 3.6}deg)`,
               }}
             />
 
-            <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 border-4 border-white shadow-lg relative">
+            <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 border-4 border-white shadow-xl relative">
               <video
                 ref={videoRef}
                 autoPlay
@@ -792,12 +793,12 @@ export default function MobileStudentCapture() {
                 className="w-full h-full"
               />
               <div className="absolute inset-0 rounded-full border border-white/20 pointer-events-none" />
-              <div className="absolute inset-7 rounded-full border border-dashed border-white/30 pointer-events-none" />
+              <div className="absolute inset-8 rounded-full border border-dashed border-white/30 pointer-events-none" />
 
               {subStep === 'SUBMITTING' && (
-                <div className="absolute inset-0 bg-[#0F172A]/70 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-1.5 p-4">
-                  <Loader2 className="h-7 w-7 animate-spin text-white" />
-                  <p className="text-xs font-semibold">Submitting attendance...</p>
+                <div className="absolute inset-0 bg-[#1B1640]/80 flex flex-col items-center justify-center text-white space-y-2 p-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-white" />
+                  <p className="text-xs font-bold">Submitting attendance...</p>
                 </div>
               )}
             </div>
@@ -805,43 +806,47 @@ export default function MobileStudentCapture() {
 
           {/* Real-time Presence Indicators */}
           <div className="grid grid-cols-2 gap-2 text-left pt-1">
-            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5">
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mb-0.5">
-                <span className="flex items-center gap-1 font-semibold text-slate-700">
-                  <MapPin className="h-3 w-3 text-blue-600" /> GPS
+            <div className="clay-card-flat p-2.5">
+              <div className="flex items-center justify-between text-[11px] text-[#5B6190] mb-0.5">
+                <span className="flex items-center gap-1 font-extrabold text-[#1B1640]">
+                  <MapPin className="h-3 w-3 text-[#5B4BF0]" /> GPS
                 </span>
                 {gpsStatus.status === 'VERIFIED' ? (
-                  <CheckCircle className="h-3 w-3 text-green-600" />
+                  <CheckCircle className="h-3 w-3 text-[#34D399]" />
                 ) : (
-                  <Compass className="h-3 w-3 text-slate-400" />
+                  <Compass className="h-3 w-3 text-[#5B6190]" />
                 )}
               </div>
-              <p className="text-[10px] text-slate-600 font-medium truncate">
+              <p className="text-[10px] text-[#5B6190] font-bold truncate">
                 {gpsStatus.details || 'Pending fix'}
               </p>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5">
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mb-0.5">
-                <span className="flex items-center gap-1 font-semibold text-slate-700">
-                  <Wifi className="h-3 w-3 text-indigo-600" /> Wi-Fi
+            <div className="clay-card-flat p-2.5">
+              <div className="flex items-center justify-between text-[11px] text-[#5B6190] mb-0.5">
+                <span className="flex items-center gap-1 font-extrabold text-[#1B1640]">
+                  <Wifi className="h-3 w-3 text-[#5B4BF0]" /> Wi-Fi
                 </span>
                 {wifiStatus.status === 'VERIFIED' ? (
-                  <CheckCircle className="h-3 w-3 text-green-600" />
+                  <CheckCircle className="h-3 w-3 text-[#34D399]" />
                 ) : wifiStatus.status === 'UNAPPROVED' ? (
-                  <WifiOff className="h-3 w-3 text-rose-600" />
+                  <WifiOff className="h-3 w-3 text-[#F43F5E]" />
                 ) : (
-                  <Radio className="h-3 w-3 text-slate-400" />
+                  <Radio className="h-3 w-3 text-[#5B6190]" />
                 )}
               </div>
-              <p className="text-[10px] text-slate-600 font-medium truncate">
+              <p className="text-[10px] text-[#5B6190] font-bold truncate">
                 {wifiStatus.details || 'Policy dependent'}
               </p>
             </div>
           </div>
 
           {/* Progress Bar */}
-          <div className="space-y-1 pt-1">
+          <div className="space-y-1.5 pt-2">
+            <div className="flex justify-between text-[11px] font-extrabold text-[#5B6190] uppercase tracking-wider">
+              <span>Progress</span>
+              <span>{progressPercent}%</span>
+            </div>
             <div className="w-full bg-[#E8EEFB] h-2 rounded-full overflow-hidden shadow-inner">
               <div
                 className="h-full bg-gradient-to-r from-[#5B4BF0] to-[#4F46E5] rounded-full transition-all duration-300"
@@ -853,27 +858,27 @@ export default function MobileStudentCapture() {
 
         {/* STEP 1: CODE ENTRY */}
         {flowStage === 'CODE' && (
-          <div className="clay-card p-6 space-y-5 animate-in fade-in duration-200">
+          <div className="clay-card p-6 space-y-5">
             <div className="text-center space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100 inline-block">
+              <span className="clay-chip clay-chip-pressed text-[10px]">
                 Presence Verification
               </span>
-              <h3 className="text-lg font-bold text-slate-900">Enter Session Code</h3>
-              <p className="text-xs text-slate-500">
+              <h3 className="text-lg font-extrabold text-[#1B1640]">Enter Session Code</h3>
+              <p className="text-xs font-semibold text-[#5B6190]">
                 Enter the 6-character code displayed by your faculty
               </p>
             </div>
 
             {errorMessage && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-rose-500" />
+              <div className="clay-chip-danger px-3.5 py-2.5 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
             <form onSubmit={handleStartVerification} className="space-y-5">
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-center mb-2.5">
+                <label className="label-clay block text-center mb-2.5">
                   6-Character Code
                 </label>
                 <div className="flex justify-between gap-1.5 sm:gap-2 max-w-[300px] mx-auto">
@@ -902,7 +907,7 @@ export default function MobileStudentCapture() {
               <button
                 type="submit"
                 disabled={fullCode.length !== 6 || isSubmitting}
-                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <>
@@ -919,9 +924,9 @@ export default function MobileStudentCapture() {
             </form>
 
             {user.name && (
-              <div className="text-center pt-1 border-t border-slate-100">
-                <p className="text-[11px] text-slate-400">
-                  Signed in as <span className="font-semibold text-slate-600">{user.name}</span> ({user.student_id})
+              <div className="text-center pt-2 border-t border-slate-200/60">
+                <p className="text-[11px] font-semibold text-[#5B6190]">
+                  Signed in as <span className="font-extrabold text-[#1B1640]">{user.name}</span> ({user.student_id})
                 </p>
               </div>
             )}
