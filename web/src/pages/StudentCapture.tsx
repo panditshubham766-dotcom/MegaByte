@@ -116,7 +116,7 @@ export default function StudentCapture() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-green-50 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-transparent flex flex-col items-center justify-center p-4">
         <div className="text-center space-y-4">
           <CheckCircle className="h-24 w-24 text-green-500 mx-auto" />
           <h1 className="text-3xl font-bold text-green-800">Success!</h1>
@@ -128,7 +128,7 @@ export default function StudentCapture() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col p-4 md:p-8">
+    <div className="min-h-screen bg-transparent flex flex-col p-4 md:p-8">
       <div className="max-w-md w-full mx-auto space-y-6">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900">Student Attendance</h2>

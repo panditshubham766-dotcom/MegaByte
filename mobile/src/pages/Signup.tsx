@@ -348,36 +348,36 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center items-center px-4 py-8 safe-pt safe-pb">
+    <div className="min-h-screen bg-transparent flex flex-col justify-center items-center px-4 py-8 safe-pt safe-pb">
       <canvas ref={canvasRef} className="hidden" />
 
       <div className="w-full max-w-[380px] mx-auto space-y-6">
         {/* Brand Header */}
         <div className="text-center flex flex-col items-center">
-          <div className="w-14 h-14 bg-[#0F172A] text-white font-black text-2xl rounded-2xl flex items-center justify-center shadow-sm select-none">
+          <div className="w-14 h-14 rounded-2xl clay-tile text-[#5B4BF0] font-black text-2xl flex items-center justify-center select-none mb-1">
             M
           </div>
-          <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A] mt-3">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#1B1640] mt-2">
             MegaByte
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs font-semibold text-[#5B6190] mt-1">
             Student Portal • Sign up
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-[0_4px_20px_-4px_rgba(15,23,42,0.05)]">
+        <div className="clay-card p-6">
           <form className="space-y-4" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-3.5 py-3 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-red-500" />
+              <div className="clay-chip-danger px-3.5 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
             {/* Email + Send Code */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 College Email
               </label>
               <div className="flex gap-2">
@@ -385,7 +385,7 @@ export default function Signup() {
                   type="email"
                   required
                   placeholder="<roll number>@iiitdwd.ac.in"
-                  className="w-full h-11 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-11 px-3.5 clay-input text-sm"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -393,17 +393,17 @@ export default function Signup() {
                   type="button"
                   onClick={handleSendOtp}
                   disabled={sendingOtp || countdown > 0}
-                  className="whitespace-nowrap px-3 h-11 bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50"
+                  className="whitespace-nowrap px-3.5 h-11 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
                 >
                   {countdown > 0 ? `${countdown}s` : sendingOtp ? 'Sending...' : 'Send code'}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">Hint: Check Spam too</p>
+              <p className="mt-1 text-[11px] font-semibold text-[#5B6190]">Hint: Check Spam too</p>
             </div>
 
             {/* 6-box OTP input */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-center mb-1.5">
+              <label className="label-clay block text-center mb-1.5">
                 6-Digit Verification Code
               </label>
               <div className="flex justify-between gap-1 sm:gap-1.5 max-w-[280px] mx-auto">
@@ -421,7 +421,7 @@ export default function Signup() {
                     onChange={(e) => handleDigitChange(idx, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(idx, e)}
                     onPaste={handlePaste}
-                    className="w-10 h-12 text-center font-mono text-xl font-bold uppercase rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 shadow-xs transition-all"
+                    className="w-10 h-12 text-center font-mono text-xl font-black uppercase clay-tile-code"
                     aria-label={`Digit ${idx + 1}`}
                   />
                 ))}
@@ -430,7 +430,7 @@ export default function Signup() {
 
             {/* Derived Roll Number Read-only */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Roll Number (from email)
               </label>
               <input
@@ -439,20 +439,20 @@ export default function Signup() {
                 disabled
                 placeholder="Derived automatically"
                 value={derivedRollNumber}
-                className="w-full h-11 px-3.5 border border-slate-200 rounded-xl bg-slate-100 text-slate-600 font-mono text-sm font-semibold select-none cursor-not-allowed"
+                className="w-full h-11 px-3.5 clay-input text-slate-500 font-mono text-sm font-semibold select-none cursor-not-allowed opacity-80"
               />
             </div>
 
             {/* Name */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Full Name
               </label>
               <input
                 type="text"
                 required
                 placeholder="Ada Lovelace"
-                className="w-full h-11 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                className="w-full h-11 px-3.5 clay-input text-sm"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -460,7 +460,7 @@ export default function Signup() {
 
             {/* Password */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -468,7 +468,7 @@ export default function Signup() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="Min 8 chars, letter & number"
-                  className="w-full h-11 pl-3.5 pr-11 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-11 pl-3.5 pr-11 clay-input text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -485,7 +485,7 @@ export default function Signup() {
 
             {/* Confirm Password */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Confirm Password
               </label>
               <div className="relative">
@@ -493,7 +493,7 @@ export default function Signup() {
                   type={showConfirmPassword ? 'text' : 'password'}
                   required
                   placeholder="Re-enter password"
-                  className="w-full h-11 pl-3.5 pr-11 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-11 pl-3.5 pr-11 clay-input text-sm"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
@@ -510,12 +510,12 @@ export default function Signup() {
 
             {/* Subject Dropdown */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Subject
               </label>
               <select
                 required
-                className="w-full h-11 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 transition-all disabled:opacity-50"
+                className="w-full h-11 px-3.5 clay-input text-sm disabled:opacity-50"
                 value={subjectCode}
                 onChange={(e) => setSubjectCode(e.target.value)}
               >
@@ -529,18 +529,18 @@ export default function Signup() {
                 ))}
               </select>
               {subjectLoadError && (
-                <p className="mt-1.5 text-xs text-red-600 font-medium">
+                <div className="clay-chip-danger px-3 py-1.5 rounded-xl text-xs font-bold w-full mt-1.5">
                   {subjectLoadError}
-                </p>
+                </div>
               )}
             </div>
 
             {/* Photo Step: Front Camera Only via getUserMedia, No gallery */}
-            <div className="pt-2 border-t border-slate-100 space-y-3">
+            <div className="pt-2 border-t border-slate-200/60 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900">Reference Photos (3-5)</h4>
-                  <p className="text-[10px] text-slate-500">
+                  <h4 className="text-xs font-extrabold text-[#1B1640]">Reference Photos (3-5)</h4>
+                  <p className="text-[10px] font-semibold text-[#5B6190]">
                     Front camera capture only • {photos.length} of 3-5 taken
                   </p>
                 </div>
@@ -548,25 +548,25 @@ export default function Signup() {
                   <button
                     type="button"
                     onClick={startCamera}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 clay-btn clay-btn-secondary text-xs rounded-full"
                   >
-                    <Camera className="h-3.5 w-3.5" />
+                    <Camera className="h-3.5 w-3.5 text-[#5B4BF0]" />
                     <span>Open Camera</span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={stopCamera}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 clay-btn clay-btn-danger-quiet text-xs rounded-full"
                   >
-                    <CameraOff className="h-3.5 w-3.5" />
+                    <CameraOff className="h-3.5 w-3.5 text-[#F43F5E]" />
                     <span>Close</span>
                   </button>
                 )}
               </div>
 
               {cameraError && (
-                <div className="text-[11px] text-red-600 bg-red-50 p-2 rounded-lg border border-red-200">
+                <div className="clay-chip-danger text-[11px] p-2.5 rounded-xl border w-full">
                   {cameraError}
                 </div>
               )}
@@ -579,7 +579,7 @@ export default function Signup() {
                     : 'fixed -left-[9999px] -top-[9999px] w-[320px] pointer-events-none'
                 }
               >
-                <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-950 border border-slate-200">
+                <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 border-2 border-[rgba(140,120,230,0.3)] shadow-inner">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -595,7 +595,7 @@ export default function Signup() {
                     type="button"
                     onClick={capturePhoto}
                     disabled={!isVideoReady || photos.length >= 5}
-                    className="w-full h-11 flex items-center justify-center gap-2 bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50"
+                    className="w-full h-11 min-h-[44px] flex items-center justify-center gap-2 clay-btn clay-btn-primary text-xs font-extrabold rounded-full disabled:opacity-50"
                   >
                     <Sparkles className="h-4 w-4" />
                     <span>Capture Photo ({photos.length}/5)</span>
@@ -607,7 +607,7 @@ export default function Signup() {
               {photos.length > 0 && (
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 pt-1">
                   {photos.map((src, idx) => (
-                    <div key={idx} className="relative group rounded-lg overflow-hidden border border-slate-200 aspect-square bg-slate-100">
+                    <div key={idx} className="relative group rounded-xl overflow-hidden border border-[rgba(140,120,230,0.25)] aspect-square bg-[#FBFAFF] shadow-xs">
                       <img src={src} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
                       <button
                         type="button"
@@ -630,19 +630,19 @@ export default function Signup() {
               <button
                 type="submit"
                 disabled={loading || photos.length < 3}
-                className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
               >
                 {loading ? 'Creating account...' : 'Complete Sign up'}
               </button>
             </div>
           </form>
 
-          <div className="mt-5 text-center border-t border-slate-100 pt-4">
+          <div className="mt-5 text-center border-t border-slate-200/60 pt-4">
             <Link
               to="/login"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-500"
+              className="text-xs font-bold text-[#5B6190] hover:text-[#1B1640] transition-colors"
             >
-              Already have an account? Sign in
+              Already have an account? <span className="text-[#5B4BF0] font-extrabold">Sign in</span>
             </Link>
           </div>
         </div>

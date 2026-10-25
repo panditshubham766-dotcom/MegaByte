@@ -4,10 +4,12 @@ import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import Capture from './pages/Capture';
 import MyAttendance from './pages/MyAttendance';
+import PageBackground from './components/PageBackground';
 
 function App() {
   return (
     <Router>
+      <PageBackground />
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />

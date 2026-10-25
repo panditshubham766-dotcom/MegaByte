@@ -8,10 +8,12 @@ import StudentCapture from './pages/StudentCapture';
 import FacultyReview from './pages/FacultyReview';
 import FacultyAttendance from './pages/FacultyAttendance';
 import FacultySubjectHistory from './pages/FacultySubjectHistory';
+import PageBackground from './components/PageBackground';
 
 function App() {
   return (
     <Router>
+      <PageBackground />
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />

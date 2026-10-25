@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, StopCircle, RefreshCw, Trash2, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, StopCircle, RefreshCw, Trash2, X, AlertCircle, Users, Download, Eye, LogOut } from 'lucide-react';
 
 interface SessionData {
   id: string;
@@ -21,6 +21,7 @@ export default function FacultyPresentation() {
   const [error, setError] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Delete Modal State & Attendance records count
   const [attendanceCount, setAttendanceCount] = useState<number>(0);
@@ -183,24 +184,72 @@ export default function FacultyPresentation() {
     }
   };
 
+  const handleDownloadExcel = async () => {
+    if (!id) return;
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/sessions/${id}/export`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to download Excel file');
+      }
+
+      const disposition = response.headers.get('content-disposition');
+      let filename = `attendance_${session?.random_code || id}.xlsx`;
+      if (disposition && disposition.includes('filename=')) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Error downloading Excel:', err);
+      alert(err.message || 'Could not download Excel export');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 text-white">
-        <RefreshCw className="h-10 w-10 animate-spin text-blue-500 mb-4" />
-        <p className="text-gray-400">Loading session...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <RefreshCw className="h-8 w-8 animate-spin text-[#5B4BF0] mb-3" />
+        <p className="text-sm font-bold text-[#5B5F8A]">Loading session...</p>
       </div>
     );
   }
 
   if (error || !session) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 text-white text-center">
-        <div className="bg-red-950 border border-red-500 rounded-2xl p-8 max-w-md w-full">
-          <h2 className="text-2xl font-bold text-red-400 mb-2">Error</h2>
-          <p className="text-gray-300 mb-6">{error || 'Session not found'}</p>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
+        <div className="clay-card p-8 max-w-md w-full">
+          <h2 className="text-xl font-extrabold text-[#F43F5E] mb-2">Error</h2>
+          <p className="text-sm font-semibold text-[#5B5F8A] mb-6">{error || 'Session not found'}</p>
           <button
             onClick={() => navigate('/faculty/dashboard')}
-            className="px-6 py-2 bg-white text-black font-semibold rounded-full hover:bg-gray-200 transition-colors"
+            className="w-full py-3 px-6 clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
           >
             Return to Dashboard
           </button>
@@ -212,152 +261,258 @@ export default function FacultyPresentation() {
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   const isOver = session.status !== 'ACTIVE';
-
   const codeChars = (session.random_code || '').slice(0, 6).split('');
 
+  // Total session seconds for progress bar (only if created_at and expires_at exist)
+  const totalSeconds = session.created_at && session.expires_at
+    ? Math.max(1, Math.round((new Date(session.expires_at).getTime() - new Date(session.created_at).getTime()) / 1000))
+    : null;
+  const progressPct = !isOver && totalSeconds
+    ? Math.max(0, Math.min(100, (timeLeft / totalSeconds) * 100))
+    : null;
+
   return (
-    <div className="min-h-screen md:h-screen md:max-h-screen md:overflow-hidden bg-black flex flex-col items-center justify-center p-4 md:p-6 relative select-none">
-      <div className="absolute top-6 left-6">
-        <button
-          onClick={() => navigate('/faculty/dashboard')}
-          className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-5 w-5" />
-          <span>Dashboard</span>
-        </button>
-      </div>
-
-      <div className="absolute top-6 right-6">
-        <button
-          onClick={() => {
-            setDeleteError('');
-            setShowDeleteModal(true);
-          }}
-          className="flex items-center space-x-2 text-red-400 hover:text-red-300 hover:bg-red-950/60 transition-colors bg-red-950/30 border border-red-800/60 px-4 py-2 rounded-full text-sm font-semibold"
-          title="Delete Session"
-        >
-          <Trash2 className="h-4 w-4" />
-          <span>Delete Session</span>
-        </button>
-      </div>
-
-      <div className="text-center w-full max-w-4xl my-auto">
-        <h1 className="text-2xl md:text-4xl text-gray-400 mb-4 md:mb-6 tracking-wider uppercase">
-          Attendance Code
-        </h1>
-
-        <div className="grid grid-cols-6 gap-2 sm:gap-3 md:gap-4 w-full mb-6 max-w-3xl mx-auto">
-          {codeChars.map((char, index) => (
-            <div
-              key={index}
-              className={`aspect-square flex items-center justify-center rounded-2xl md:rounded-3xl border-2 font-mono font-bold shadow-2xl transition-all ${
-                isOver
-                  ? 'bg-gray-900 border-gray-700 text-gray-500'
-                  : 'bg-gray-900 border-green-500 text-green-400 shadow-[0_0_30px_rgba(34,197,94,0.25)]'
-              }`}
-              style={{ fontSize: 'clamp(2.5rem, 10vw, 8rem)' }}
-            >
-              {char}
-            </div>
-          ))}
-        </div>
-
-        {!isOver ? (
-          <div className="flex flex-col items-center justify-center space-y-6">
-            <div className="text-gray-400 text-xl uppercase tracking-widest">
-              Time Remaining
-            </div>
-            <div className={`text-6xl md:text-8xl font-mono font-bold tabular-nums ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
-              {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
+      {/* Floating Rounded Clay Top Bar */}
+      <header className="max-w-7xl w-full mx-auto mb-6">
+        <div className="clay-topbar px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 sm:gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full clay-tile flex items-center justify-center font-black text-base text-[#5B4BF0]">
+                M
+              </div>
+              <span className="font-extrabold text-xl text-[#1B1640] tracking-tight">MegaByte</span>
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-4 mt-6">
+            {/* Nav links as clay pills with active state */}
+            <nav className="flex items-center gap-2">
               <button
-                onClick={() => navigate(`/session/${session.id}/review`)}
-                className="px-8 py-3 bg-blue-600/20 border border-blue-500 text-blue-400 font-bold rounded-full text-lg hover:bg-blue-600 hover:text-white transition-colors"
-              >
-                Live Review
-              </button>
-              <button
-                onClick={handleEndSession}
-                disabled={isEnding}
-                className="flex items-center px-8 py-3 bg-red-600/20 border border-red-500 text-red-400 font-bold rounded-full text-lg hover:bg-red-600 hover:text-white transition-colors disabled:opacity-50"
-              >
-                <StopCircle className="h-5 w-5 mr-2" />
-                {isEnding ? 'Ending...' : 'End Session'}
-              </button>
-              <button
-                onClick={() => {
-                  setDeleteError('');
-                  setShowDeleteModal(true);
-                }}
-                className="flex items-center px-8 py-3 bg-red-900/30 border border-red-600/60 text-red-400 font-bold rounded-full text-lg hover:bg-red-600 hover:text-white transition-colors"
-              >
-                <Trash2 className="h-5 w-5 mr-2" />
-                Delete Session
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 flex flex-col items-center justify-center space-y-6">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl py-4 px-8 text-center">
-              <p className="text-xl md:text-2xl font-bold text-red-400 mb-1">
-                Session ended
-              </p>
-              <p className="text-gray-400 text-sm">
-                {session.status === 'EXPIRED'
-                  ? 'Time limit expired'
-                  : 'Ended by faculty'}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-4 mt-4">
-              <button
-                onClick={() => navigate(`/session/${session.id}/attendance`)}
-                className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-full text-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-900/50"
-              >
-                Attendance Roster
-              </button>
-              <button
-                onClick={() => navigate(`/session/${session.id}/review`)}
-                className="px-8 py-4 bg-blue-600 text-white font-bold rounded-full text-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-900/50"
-              >
-                Live Review
-              </button>
-              <button
-                onClick={() => {
-                  setDeleteError('');
-                  setShowDeleteModal(true);
-                }}
-                className="flex items-center px-8 py-4 bg-red-600/20 border border-red-500 text-red-400 font-bold rounded-full text-xl hover:bg-red-600 hover:text-white transition-colors"
-              >
-                <Trash2 className="h-6 w-6 mr-2" />
-                Delete Session
-              </button>
-              <button
+                type="button"
                 onClick={() => navigate('/faculty/dashboard')}
-                className="px-8 py-4 bg-white text-black font-bold rounded-full text-xl hover:bg-gray-200 transition-colors"
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
               >
-                Return to Dashboard
+                <ArrowLeft className="h-3 w-3 mr-1" />
+                Dashboard
               </button>
+              <span className="clay-chip clay-chip-pressed text-xs">
+                Code
+              </span>
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${session.id}/review`)}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                Live Review
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${session.id}/attendance`)}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                Attendance table
+              </button>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleLogout}
+              className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full"
+            >
+              <LogOut className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content - Laptop-first two-column grid at 1024px and up, one column below */}
+      <main className="flex-1 max-w-7xl w-full mx-auto flex flex-col justify-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          {/* Left card: Attendance Code, 6 raised clay tiles, amber countdown, thin progress bar, status chip */}
+          <div className="lg:col-span-7 xl:col-span-8 clay-card p-6 sm:p-10 flex flex-col items-center justify-center text-center">
+            {/* Status chip */}
+            <div className="mb-4">
+              {session.status === 'ACTIVE' ? (
+                <span className="clay-chip clay-chip-success">
+                  <span className="w-2 h-2 rounded-full bg-[#16A34A] mr-1.5 animate-pulse" />
+                  Live
+                </span>
+              ) : session.status === 'EXPIRED' ? (
+                <span className="clay-chip clay-chip-warning">
+                  Expired
+                </span>
+              ) : (
+                <span className="clay-chip clay-chip-lavender">
+                  Ended
+                </span>
+              )}
+            </div>
+
+            <label className="label-clay block mb-6">
+              ATTENDANCE CODE
+            </label>
+
+            {/* 6 Code Boxes as raised clay tiles: equal width, monospace, very large, high contrast, readable from back of room */}
+            <div className="grid grid-cols-6 gap-2 sm:gap-3 md:gap-4 w-full max-w-xl mx-auto mb-6">
+              {codeChars.map((char, index) => (
+                <div
+                  key={index}
+                  className={`aspect-square flex items-center justify-center font-mono font-black text-3xl sm:text-5xl md:text-6xl transition-all ${
+                    isOver ? 'clay-tile-code-inactive' : 'clay-tile-code text-[#1B1640]'
+                  }`}
+                >
+                  {char}
+                </div>
+              ))}
+            </div>
+
+            {/* Countdown in amber */}
+            {!isOver ? (
+              <div className="w-full flex flex-col items-center justify-center space-y-2 mt-2">
+                <span className="label-clay block">
+                  TIME REMAINING
+                </span>
+                <div className={`text-5xl sm:text-6xl md:text-7xl font-mono font-black tabular-nums text-[#D97706] ${timeLeft < 60 ? 'animate-pulse text-[#F43F5E]' : ''}`}>
+                  {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+                </div>
+
+                {/* Thin progress bar only if total and remaining time already exist */}
+                {progressPct !== null && (
+                  <div className="w-full max-w-sm h-2 rounded-full bg-slate-200/80 shadow-inner overflow-hidden mt-3">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-[#D97706] rounded-full transition-all duration-1000 ease-linear shadow-sm"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 py-3 px-6 clay-chip clay-chip-lavender text-center">
+                <p className="text-sm font-extrabold">Session ended</p>
+                <p className="text-[11px] font-semibold opacity-80 mt-0.5">
+                  {session.status === 'EXPIRED' ? 'Time limit expired' : 'Ended by faculty'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Right column card: live stat, controls */}
+          <div className="lg:col-span-5 xl:col-span-4 clay-card p-6 sm:p-8 flex flex-col justify-between space-y-6">
+            <div>
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#1B1640] uppercase tracking-wider">Session Overview</h3>
+                  <p className="text-xs font-semibold text-[#5B5F8A] mt-0.5">Live attendee statistics & controls</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#34D399] animate-pulse" />
+                  <span className="text-xs font-bold text-[#065F46]">Synced</span>
+                </div>
+              </div>
+
+              {/* Attendance Count Stat */}
+              <div className="mt-5 p-4 rounded-2xl clay-card-flat flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl clay-tile flex items-center justify-center text-[#5B4BF0]">
+                    <Users className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <span className="label-clay block">
+                      Submissions
+                    </span>
+                    <span className="text-xl font-extrabold text-[#1B1640] font-mono">
+                      {attendanceCount} records
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${session.id}/review`)}
+                className="w-full py-3 px-5 clay-btn clay-btn-secondary text-xs rounded-full"
+              >
+                <Eye className="h-4 w-4 mr-2 text-[#5B5F8A]" />
+                Live Review
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${session.id}/attendance`)}
+                className="w-full py-3 px-5 clay-btn clay-btn-secondary text-xs rounded-full"
+              >
+                <Users className="h-4 w-4 mr-2 text-[#5B5F8A]" />
+                Attendance table
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadExcel}
+                disabled={downloading}
+                className="w-full py-3 px-5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
+              >
+                <Download className="h-4 w-4 mr-2 text-[#5B5F8A]" />
+                {downloading ? 'Downloading...' : 'Download Excel'}
+              </button>
+
+              {/* End Session full-width danger clay-btn */}
+              {!isOver && (
+                <button
+                  type="button"
+                  onClick={handleEndSession}
+                  disabled={isEnding}
+                  className="w-full py-3 px-5 clay-btn clay-btn-danger text-xs rounded-full disabled:opacity-50"
+                >
+                  <StopCircle className="h-4 w-4 mr-2" />
+                  {isEnding ? 'Ending...' : 'End Session'}
+                </button>
+              )}
+
+              {/* Delete Session quiet danger */}
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError('');
+                  setShowDeleteModal(true);
+                }}
+                className="w-full py-3 px-5 clay-btn clay-btn-danger-quiet text-xs rounded-full"
+                title="Delete Session"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Session
+              </button>
+
+              {isOver && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/faculty/dashboard')}
+                  className="w-full py-3 px-5 clay-btn clay-btn-primary text-xs rounded-full"
+                >
+                  Return to Dashboard
+                </button>
+              )}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      </main>
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl max-w-md w-full shadow-2xl border border-gray-800 overflow-hidden text-left">
-            <div className="flex items-center justify-between p-6 border-b border-gray-800">
-              <div className="flex items-center gap-2 text-red-500">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full overflow-hidden text-left">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200/60">
+              <div className="flex items-center gap-2 text-[#F43F5E]">
                 <Trash2 className="h-5 w-5" />
-                <h3 className="text-lg font-bold text-white">Delete Session</h3>
+                <h3 className="text-base font-extrabold text-[#1B1640]">Delete Session</h3>
               </div>
               <button
                 onClick={() => setShowDeleteModal(false)}
                 disabled={isDeleting}
-                className="p-1 rounded-full text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-50"
+                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 disabled:opacity-50 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -365,32 +520,32 @@ export default function FacultyPresentation() {
 
             <div className="p-6 space-y-4">
               <div>
-                <p className="text-xs uppercase tracking-wider text-gray-400 font-bold">Session Date</p>
-                <p className="font-semibold text-white text-base mt-0.5">
+                <p className="label-clay block">Session Date</p>
+                <p className="font-bold text-[#1B1640] text-sm mt-0.5">
                   {session.created_at
                     ? new Date(session.created_at).toLocaleString()
                     : new Date(session.server_now).toLocaleString()}
                 </p>
               </div>
 
-              <div className="bg-red-950/60 border border-red-800/80 text-red-300 px-4 py-3 rounded-lg text-sm font-medium">
+              <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full">
                 This permanently deletes {attendanceCount} attendance records and cannot be undone
               </div>
 
               {deleteError && (
-                <div className="bg-red-900/50 border border-red-700 text-red-300 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
                   <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <span>{deleteError}</span>
                 </div>
               )}
             </div>
 
-            <div className="bg-gray-950 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-800">
+            <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200/60">
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(false)}
                 disabled={isDeleting}
-                className="px-4 py-2 border border-gray-700 rounded-lg text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-50"
+                className="px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -398,11 +553,11 @@ export default function FacultyPresentation() {
                 type="button"
                 onClick={handleConfirmDelete}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2.5 clay-btn clay-btn-danger text-xs rounded-full disabled:opacity-50 flex items-center gap-2"
               >
                 {isDeleting ? (
                   <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                     <span>Deleting...</span>
                   </>
                 ) : (

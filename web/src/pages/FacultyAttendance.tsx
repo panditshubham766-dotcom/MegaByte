@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit3, Download, RefreshCw, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Edit3, Download, RefreshCw, X, AlertCircle, Eye, LogOut } from 'lucide-react';
 
 interface AttendanceRow {
   student_id: string;
@@ -104,9 +104,14 @@ export default function FacultyAttendance() {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
   const openEditModal = (student: AttendanceRow) => {
     setEditingStudent(student);
-    // If current status is APPROVED, default next status to REJECTED; otherwise APPROVED
     const defaultNext: 'APPROVED' | 'REJECTED' = student.status === 'APPROVED' ? 'REJECTED' : 'APPROVED';
     setTargetStatus(defaultNext);
     setEditReason('');
@@ -159,7 +164,6 @@ export default function FacultyAttendance() {
       }
 
       closeEditModal();
-      // Refresh list after saving
       await fetchAttendance();
     } catch (err: any) {
       console.error('Error saving attendance edit:', err);
@@ -172,163 +176,211 @@ export default function FacultyAttendance() {
   const renderStatusBadge = (status: AttendanceRow['status']) => {
     if (status === 'APPROVED') {
       return (
-        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-300">
+        <span className="clay-chip clay-chip-success">
           Present (APPROVED)
         </span>
       );
     }
     if (status === 'REJECTED') {
       return (
-        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300">
+        <span className="clay-chip clay-chip-danger">
           Not present (REJECTED)
         </span>
       );
     }
     if (status === 'PENDING') {
       return (
-        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-300">
-          PENDING
+        <span className="clay-chip clay-chip-warning">
+          Pending
         </span>
       );
     }
     return (
-      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600 border border-gray-300">
-        Absent (No Record)
+      <span className="clay-chip clay-chip-neutral">
+        Absent
       </span>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate(`/session/${id}/review`)}
-              className="p-2 bg-white border border-gray-300 rounded-full hover:bg-gray-50 text-gray-600"
-              title="Back to Review"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Session Attendance Roster</h1>
-              <p className="text-sm text-gray-500">Manage and override student attendance records</p>
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
+      {/* Floating Rounded Clay Top Bar */}
+      <header className="max-w-7xl w-full mx-auto mb-6">
+        <div className="clay-topbar px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 sm:gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full clay-tile flex items-center justify-center font-black text-base text-[#5B4BF0]">
+                M
+              </div>
+              <span className="font-extrabold text-xl text-[#1B1640] tracking-tight">MegaByte</span>
             </div>
+
+            {/* Nav links as clay pills with active state */}
+            <nav className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/faculty/dashboard')}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                <ArrowLeft className="h-3 w-3 mr-1" />
+                Dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${id}`)}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                Code
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${id}/review`)}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                Live Review
+              </button>
+              <span className="clay-chip clay-chip-pressed text-xs">
+                Attendance table
+              </span>
+            </nav>
           </div>
 
           <div className="flex items-center gap-3">
             <button
+              onClick={handleLogout}
+              className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full"
+            >
+              <LogOut className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto space-y-6">
+        {/* Actions Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 clay-card p-4 sm:p-6">
+          <div>
+            <h1 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Session Attendance Roster</h1>
+            <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Manage and override student attendance records</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
               onClick={fetchAttendance}
               disabled={loading}
-              className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+              className="clay-btn clay-btn-secondary p-2.5 rounded-full disabled:opacity-50"
               title="Refresh"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 text-[#5B5F8A] ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={() => navigate(`/session/${id}/review`)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors"
+              className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs rounded-full"
             >
+              <Eye className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
               Live Review
             </button>
             <button
               onClick={handleDownloadExcel}
               disabled={downloading}
-              className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs rounded-full disabled:opacity-50"
             >
-              <Download className="h-4 w-4 mr-2" />
+              <Download className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
               {downloading ? 'Downloading...' : 'Download Excel'}
             </button>
           </div>
-        </header>
+        </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md mb-6">
+          <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full">
             {error}
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Wide table scrollable inside its own container - inside it keep rows and cells FLAT */}
+        <div className="clay-card p-4 sm:p-6 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-slate-200/60">
+              <thead>
                 <tr>
-                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-left label-clay">
                     Student ID
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-left label-clay">
                     Name
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-left label-clay">
                     Status
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-left label-clay">
                     Face Match
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-left label-clay">
                     Liveness
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-left label-clay">
                     Edit Reason
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3.5 text-right label-clay">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-200/50">
                 {loading && students.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-16 text-center text-xs font-bold text-[#5B5F8A]">
                       <div className="flex justify-center items-center">
-                        <RefreshCw className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                        <RefreshCw className="h-5 w-5 animate-spin text-[#5B4BF0] mr-2" />
                         Loading attendance roster...
                       </div>
                     </td>
                   </tr>
                 ) : students.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-16 text-center text-xs font-semibold text-[#5B5F8A]">
                       No enrolled students found for this session.
                     </td>
                   </tr>
                 ) : (
                   students.map((student) => (
-                    <tr key={student.user_id || student.student_id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-medium text-gray-900">
+                    <tr key={student.user_id || student.student_id} className="hover:bg-white/60 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs font-mono font-bold text-[#1B1640]">
                         {student.student_id}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs font-extrabold text-[#1B1640]">
                         {student.name}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">
                         {renderStatusBadge(student.status)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-[#5B5F8A] font-mono font-bold">
                         {student.face_match_score !== null && student.face_match_score !== undefined
                           ? `${Math.round(student.face_match_score * 100)}%`
                           : '—'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-[#5B5F8A] font-mono font-bold">
                         {student.liveness_score !== null && student.liveness_score !== undefined
                           ? `${Math.round(student.liveness_score * 100)}%`
                           : '—'}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate" title={student.edit_reason || ''}>
+                      <td className="px-6 py-4 text-xs text-[#5B5F8A] max-w-xs truncate" title={student.edit_reason || ''}>
                         {student.edit_reason ? (
-                          <span className="inline-flex items-center text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-xs border border-amber-200">
+                          <span className="clay-chip clay-chip-warning text-[10px]">
                             {student.edit_reason}
                           </span>
                         ) : (
                           '—'
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
                         <button
                           onClick={() => openEditModal(student)}
-                          className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-semibold rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
+                          className="clay-btn clay-btn-secondary px-3 py-1.5 text-xs rounded-full"
                         >
-                          <Edit3 className="h-3.5 w-3.5 mr-1 text-gray-500" />
+                          <Edit3 className="h-3 w-3 mr-1 text-[#5B5F8A]" />
                           Edit
                         </button>
                       </td>
@@ -342,13 +394,13 @@ export default function FacultyAttendance() {
 
         {/* Edit Modal */}
         {editingStudent && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                <h3 className="text-lg font-bold text-gray-900">Edit Attendance Record</h3>
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="clay-card max-w-md w-full overflow-hidden">
+              <div className="flex items-center justify-between p-6 border-b border-slate-200/60">
+                <h3 className="text-base font-extrabold text-[#1B1640]">Edit Attendance Record</h3>
                 <button
                   onClick={closeEditModal}
-                  className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -356,34 +408,34 @@ export default function FacultyAttendance() {
 
               <div className="p-6 space-y-4">
                 <div>
-                  <p className="text-sm text-gray-500">Student</p>
-                  <p className="font-semibold text-gray-900 text-base">{editingStudent.name} ({editingStudent.student_id})</p>
+                  <p className="label-clay block">Student</p>
+                  <p className="font-extrabold text-[#1B1640] text-sm mt-0.5">{editingStudent.name} ({editingStudent.student_id})</p>
                 </div>
 
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Current Status</p>
+                  <p className="label-clay block mb-1.5">Current Status</p>
                   {renderStatusBadge(editingStudent.status)}
                 </div>
 
                 {modalError && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                  <div className="clay-chip-danger px-3 py-2 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
                     <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                     <span>{modalError}</span>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="label-clay block mb-2">
                     New Status
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => setTargetStatus('APPROVED')}
-                      className={`py-2.5 px-3 rounded-lg border text-sm font-semibold flex items-center justify-center transition-all ${
+                      className={`py-2.5 px-3 rounded-full text-xs font-extrabold flex items-center justify-center transition-all ${
                         targetStatus === 'APPROVED'
-                          ? 'border-green-500 bg-green-50 text-green-700 ring-2 ring-green-500/20'
-                          : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                          ? 'clay-chip-pressed'
+                          : 'clay-chip clay-chip-selectable clay-chip-neutral'
                       }`}
                     >
                       Present (APPROVED)
@@ -391,10 +443,10 @@ export default function FacultyAttendance() {
                     <button
                       type="button"
                       onClick={() => setTargetStatus('REJECTED')}
-                      className={`py-2.5 px-3 rounded-lg border text-sm font-semibold flex items-center justify-center transition-all ${
+                      className={`py-2.5 px-3 rounded-full text-xs font-extrabold flex items-center justify-center transition-all ${
                         targetStatus === 'REJECTED'
-                          ? 'border-red-500 bg-red-50 text-red-700 ring-2 ring-red-500/20'
-                          : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                          ? 'clay-chip-pressed'
+                          : 'clay-chip clay-chip-selectable clay-chip-neutral'
                       }`}
                     >
                       Not present (REJECTED)
@@ -403,26 +455,26 @@ export default function FacultyAttendance() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason for edit <span className="text-red-500">*</span>
+                  <label className="label-clay block mb-1.5">
+                    Reason for edit <span className="text-[#F43F5E]">*</span>
                   </label>
                   <textarea
                     rows={3}
                     placeholder="Enter reason (min 5 characters, e.g. Verified physical presence in class)"
                     value={editReason}
                     onChange={(e) => setEditReason(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    className="w-full px-4 py-3 clay-input text-xs"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Minimum 5 characters required.</p>
+                  <p className="text-[11px] font-semibold text-[#5B5F8A] mt-1">Minimum 5 characters required.</p>
                 </div>
               </div>
 
-              <div className="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={closeEditModal}
                   disabled={isSubmitting}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  className="px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -430,7 +482,7 @@ export default function FacultyAttendance() {
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={isSubmitting || editReason.trim().length < 5}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2.5 clay-btn clay-btn-primary text-xs rounded-full disabled:opacity-50"
                 >
                   {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -438,7 +490,7 @@ export default function FacultyAttendance() {
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

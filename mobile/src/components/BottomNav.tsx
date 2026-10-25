@@ -10,8 +10,8 @@ export default function BottomNav({ activeTab, onNavigate }: BottomNavProps) {
   const navigate = useNavigate();
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 z-40 pb-[env(safe-area-inset-bottom,0px)] shadow-[0_-4px_16px_rgba(0,0,0,0.03)]">
-      <div className="max-w-[360px] sm:max-w-md mx-auto grid grid-cols-2 px-3 py-1.5">
+    <nav className="fixed bottom-3 inset-x-0 z-40 px-4 pb-[env(safe-area-inset-bottom,0px)] pointer-events-none">
+      <div className="max-w-[340px] mx-auto clay-bottombar px-2.5 py-1.5 grid grid-cols-2 gap-1.5 pointer-events-auto">
         <button
           type="button"
           onClick={() => {
@@ -20,17 +20,15 @@ export default function BottomNav({ activeTab, onNavigate }: BottomNavProps) {
               navigate('/capture');
             }
           }}
-          className={`min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl transition-all ${
+          className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-full transition-all ${
             activeTab === 'verify'
-              ? 'text-[#0F172A] font-bold'
-              : 'text-slate-400 hover:text-slate-600 font-medium'
+              ? 'clay-chip-pressed text-white font-extrabold'
+              : 'text-[#5B6190] hover:text-[#1B1640] font-bold'
           }`}
           aria-label="Verify Attendance"
         >
-          <div className={`p-1.5 rounded-xl transition-colors ${activeTab === 'verify' ? 'bg-slate-100 text-[#0F172A]' : ''}`}>
-            <Camera className="h-5 w-5" />
-          </div>
-          <span className="text-[11px] font-semibold uppercase tracking-wider">Verify</span>
+          <Camera className="h-5 w-5" />
+          <span className="text-[10px] uppercase tracking-wider">Verify</span>
         </button>
 
         <button
@@ -41,17 +39,15 @@ export default function BottomNav({ activeTab, onNavigate }: BottomNavProps) {
               navigate('/my-attendance');
             }
           }}
-          className={`min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl transition-all ${
+          className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-full transition-all ${
             activeTab === 'records'
-              ? 'text-[#0F172A] font-bold'
-              : 'text-slate-400 hover:text-slate-600 font-medium'
+              ? 'clay-chip-pressed text-white font-extrabold'
+              : 'text-[#5B6190] hover:text-[#1B1640] font-bold'
           }`}
           aria-label="Attendance Records"
         >
-          <div className={`p-1.5 rounded-xl transition-colors ${activeTab === 'records' ? 'bg-slate-100 text-[#0F172A]' : ''}`}>
-            <CalendarCheck className="h-5 w-5" />
-          </div>
-          <span className="text-[11px] font-semibold uppercase tracking-wider">Records</span>
+          <CalendarCheck className="h-5 w-5" />
+          <span className="text-[10px] uppercase tracking-wider">Records</span>
         </button>
       </div>
     </nav>

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { FormEvent, KeyboardEvent, ClipboardEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { KeyRound, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -157,33 +157,27 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="rounded-full bg-blue-100 p-3">
-            <KeyRound className="h-8 w-8 text-blue-600" />
+    <div className="min-h-screen flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full clay-tile text-[#5B4BF0] font-black text-2xl mb-4">
+            M
           </div>
+          <h1 className="text-3xl font-extrabold text-[#1B1640] tracking-tight">MegaByte</h1>
+          <p className="mt-1 text-sm font-semibold text-[#5B5F8A]">Reset Password • Enter your email for a reset code</p>
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Reset Password
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Enter your email to receive a reset code
-        </p>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          <form className="space-y-5" onSubmit={handleSubmit}>
+        <div className="clay-card p-6 sm:p-8">
+          <form className="space-y-4" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm flex items-start gap-2">
+              <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>{error}</span>
               </div>
             )}
 
             {successMsg && (
-              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm flex items-start gap-2">
+              <div className="clay-chip-success px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>{successMsg}</span>
               </div>
@@ -191,13 +185,15 @@ export default function ForgotPassword() {
 
             {/* Email + Send Code */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">Email address</label>
-              <div className="mt-1 flex gap-2">
+              <label className="label-clay block mb-1.5">
+                Email address
+              </label>
+              <div className="flex gap-2">
                 <input
                   type="email"
                   required
                   placeholder="name@iiitdwd.ac.in"
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="w-full px-4 py-3 clay-input text-sm"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -205,20 +201,20 @@ export default function ForgotPassword() {
                   type="button"
                   onClick={handleSendOtp}
                   disabled={sendingOtp || countdown > 0}
-                  className="whitespace-nowrap px-3 py-2 border border-transparent rounded-md shadow-sm text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="whitespace-nowrap px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full"
                 >
                   {countdown > 0 ? `${countdown}s` : sendingOtp ? 'Sending...' : 'Send code'}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-gray-500">Hint: Check Spam too</p>
+              <p className="mt-1 text-[11px] font-semibold text-[#5B5F8A]">Hint: Check Spam folder if not received</p>
             </div>
 
             {/* 6-box OTP Input */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 text-center mb-1.5">
+              <label className="label-clay block text-center mb-2">
                 6-Digit Verification Code
               </label>
-              <div className="flex justify-between gap-1.5 sm:gap-2 max-w-[300px] mx-auto">
+              <div className="flex justify-between gap-1.5 sm:gap-2 max-w-[290px] mx-auto">
                 {codeDigits.map((digit, idx) => (
                   <input
                     key={idx}
@@ -233,7 +229,7 @@ export default function ForgotPassword() {
                     onChange={(e) => handleDigitChange(idx, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(idx, e)}
                     onPaste={handlePaste}
-                    className="w-10 h-12 sm:w-11 sm:h-13 text-center font-mono text-xl font-bold uppercase rounded-xl border border-gray-300 bg-white text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 shadow-xs transition-all"
+                    className="w-10 h-12 sm:w-11 sm:h-12 text-center font-mono text-xl font-extrabold uppercase clay-input"
                     aria-label={`Digit ${idx + 1}`}
                   />
                 ))}
@@ -242,67 +238,71 @@ export default function ForgotPassword() {
 
             {/* New Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">New Password</label>
-              <div className="mt-1 relative">
+              <label className="label-clay block mb-1.5">
+                New Password
+              </label>
+              <div className="relative">
                 <input
                   type={showNewPassword ? 'text' : 'password'}
                   required
                   placeholder="Min 8 chars, letter & number"
-                  className="appearance-none block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="w-full px-4 py-3 pr-11 clay-input text-sm"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
                 <button
                   type="button"
                   onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
                   aria-label={showNewPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
             {/* Confirm New Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">Confirm New Password</label>
-              <div className="mt-1 relative">
+              <label className="label-clay block mb-1.5">
+                Confirm New Password
+              </label>
+              <div className="relative">
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
                   required
                   placeholder="Re-enter new password"
-                  className="appearance-none block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="w-full px-4 py-3 pr-11 clay-input text-sm"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
                   aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            <div>
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="w-full py-3.5 px-6 clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
               >
                 {loading ? 'Resetting password...' : 'Reset Password'}
               </button>
             </div>
           </form>
 
-          <div className="mt-6 text-center border-t border-gray-200 pt-4">
+          <div className="mt-6 text-center border-t border-slate-200/60 pt-4">
             <Link
               to="/login"
-              className="text-sm font-medium text-blue-600 hover:text-blue-500"
+              className="text-xs font-bold text-[#5B5F8A] hover:text-[#1B1640] transition-colors"
             >
-              Back to Sign in
+              Back to <span className="text-[#5B4BF0] font-extrabold">Sign in</span>
             </Link>
           </div>
         </div>

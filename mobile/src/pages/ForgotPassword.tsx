@@ -172,41 +172,41 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center items-center px-4 py-8 safe-pt safe-pb">
+    <div className="min-h-screen bg-transparent flex flex-col justify-center items-center px-4 py-8 safe-pt safe-pb">
       <div className="w-full max-w-[360px] mx-auto space-y-6">
         {/* Brand Header */}
         <div className="text-center flex flex-col items-center">
-          <div className="w-14 h-14 bg-[#0F172A] text-white font-black text-2xl rounded-2xl flex items-center justify-center shadow-sm select-none">
-            <KeyRound className="h-7 w-7 text-white" />
+          <div className="w-14 h-14 rounded-2xl clay-tile text-[#5B4BF0] flex items-center justify-center select-none mb-1">
+            <KeyRound className="h-7 w-7 text-[#5B4BF0]" />
           </div>
-          <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A] mt-3">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#1B1640] mt-2">
             Reset Password
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs font-semibold text-[#5B6190] mt-1">
             Student Portal • Password Recovery
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-[0_4px_20px_-4px_rgba(15,23,42,0.05)]">
+        <div className="clay-card p-6">
           <form className="space-y-4" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-3.5 py-3 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-red-500" />
+              <div className="clay-chip-danger px-3.5 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
             {successMsg && (
-              <div className="bg-green-50 border border-green-200 text-green-700 px-3.5 py-3 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
-                <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5 text-green-500" />
+              <div className="clay-chip-success px-3.5 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5 text-emerald-600" />
                 <span>{successMsg}</span>
               </div>
             )}
 
             {/* Email + Send Code */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Email address
               </label>
               <div className="flex gap-2">
@@ -214,7 +214,7 @@ export default function ForgotPassword() {
                   type="email"
                   required
                   placeholder="23bcs001@iiitdwd.ac.in"
-                  className="w-full h-11 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-11 px-3.5 clay-input text-sm"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -222,17 +222,17 @@ export default function ForgotPassword() {
                   type="button"
                   onClick={handleSendOtp}
                   disabled={sendingOtp || countdown > 0}
-                  className="whitespace-nowrap px-3 h-11 bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50"
+                  className="whitespace-nowrap px-3.5 h-11 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
                 >
                   {countdown > 0 ? `${countdown}s` : sendingOtp ? 'Sending...' : 'Send code'}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">Hint: Check Spam too</p>
+              <p className="mt-1 text-[11px] font-semibold text-[#5B6190]">Hint: Check Spam too</p>
             </div>
 
             {/* 6-box OTP input */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-center mb-1.5">
+              <label className="label-clay block text-center mb-1.5">
                 6-Digit Verification Code
               </label>
               <div className="flex justify-between gap-1 sm:gap-1.5 max-w-[280px] mx-auto">
@@ -250,7 +250,7 @@ export default function ForgotPassword() {
                     onChange={(e) => handleDigitChange(idx, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(idx, e)}
                     onPaste={handlePaste}
-                    className="w-10 h-12 text-center font-mono text-xl font-bold uppercase rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 shadow-xs transition-all"
+                    className="w-10 h-12 text-center font-mono text-xl font-black uppercase clay-tile-code"
                     aria-label={`Digit ${idx + 1}`}
                   />
                 ))}
@@ -259,7 +259,7 @@ export default function ForgotPassword() {
 
             {/* New Password */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 New Password
               </label>
               <div className="relative">
@@ -267,7 +267,7 @@ export default function ForgotPassword() {
                   type={showNewPassword ? 'text' : 'password'}
                   required
                   placeholder="Min 8 chars, letter & number"
-                  className="w-full h-11 pl-3.5 pr-11 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-11 pl-3.5 pr-11 clay-input text-sm"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
@@ -284,7 +284,7 @@ export default function ForgotPassword() {
 
             {/* Confirm New Password */}
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Confirm New Password
               </label>
               <div className="relative">
@@ -292,7 +292,7 @@ export default function ForgotPassword() {
                   type={showConfirmPassword ? 'text' : 'password'}
                   required
                   placeholder="Re-enter new password"
-                  className="w-full h-11 pl-3.5 pr-11 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-11 pl-3.5 pr-11 clay-input text-sm"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
@@ -311,19 +311,19 @@ export default function ForgotPassword() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
               >
                 {loading ? 'Resetting password...' : 'Reset Password'}
               </button>
             </div>
           </form>
 
-          <div className="mt-5 text-center border-t border-slate-100 pt-4">
+          <div className="mt-5 text-center border-t border-slate-200/60 pt-4">
             <Link
               to="/login"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-500"
+              className="text-xs font-bold text-[#5B6190] hover:text-[#1B1640] transition-colors"
             >
-              Back to Sign in
+              Back to <span className="text-[#5B4BF0] font-extrabold">Sign in</span>
             </Link>
           </div>
         </div>

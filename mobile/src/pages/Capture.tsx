@@ -326,27 +326,27 @@ export default function StudentCapture() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-between safe-pt pb-24">
+    <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-28">
       {/* Hidden canvas for un-mirrored frame capture */}
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Main Content Area */}
       <div className="w-full max-w-[360px] sm:max-w-md mx-auto px-4 py-4 space-y-4">
         {/* Top Header */}
-        <header className="flex items-center justify-between bg-white px-4 py-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+        <header className="flex items-center justify-between clay-topbar px-4 py-2.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#0F172A] text-white font-black text-sm rounded-xl flex items-center justify-center select-none shadow-xs">
+            <div className="w-8 h-8 rounded-xl clay-tile text-[#5B4BF0] font-black text-sm flex items-center justify-center select-none shadow-xs">
               M
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 leading-tight">MegaByte</h2>
-              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Student Portal</span>
+              <h2 className="text-sm font-extrabold text-[#1B1640] leading-tight">MegaByte</h2>
+              <span className="text-[10px] uppercase tracking-wider text-[#5B6190] font-extrabold">Student Portal</span>
             </div>
           </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="flex items-center gap-1 min-h-[44px] min-w-[44px] justify-center text-slate-400 hover:text-red-600 transition-colors"
+            className="flex items-center gap-1 min-h-[44px] min-w-[44px] justify-center text-[#5B6190] hover:text-[#F43F5E] transition-colors"
             title="Log out"
             aria-label="Log out"
           >
@@ -356,41 +356,41 @@ export default function StudentCapture() {
 
         {/* STEP 3: RESULT SCREEN */}
         {flowStage === 'RESULT' && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm text-center space-y-5 animate-in fade-in duration-200">
+          <div className="clay-card p-6 text-center space-y-5">
             {success ? (
               <>
-                <div className="w-16 h-16 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-center mx-auto text-[#16A34A]">
-                  <CheckCircle className="h-10 w-10" />
+                <div className="w-16 h-16 rounded-2xl clay-tile text-[#065F46] flex items-center justify-center mx-auto">
+                  <CheckCircle className="h-9 w-9 text-[#34D399]" />
                 </div>
                 <div className="space-y-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 inline-block">
+                  <span className="clay-chip clay-chip-success">
                     Verified
                   </span>
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-extrabold text-[#1B1640]">
                     Attendance submitted — awaiting faculty approval
                   </h3>
-                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                  <p className="text-xs font-semibold text-[#5B6190] max-w-xs mx-auto">
                     Your verification record has been saved.
                   </p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/60 text-xs text-slate-600">
-                  <p className="font-semibold text-slate-700">Logging you out securely...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Redirecting to login in 3 seconds</p>
+                <div className="p-3 clay-card-flat text-xs text-[#5B6190]">
+                  <p className="font-extrabold text-[#1B1640]">Logging you out securely...</p>
+                  <p className="text-[11px] font-semibold text-[#5B6190] mt-0.5">Redirecting to login in 3 seconds</p>
                 </div>
               </>
             ) : (
               <>
-                <div className="w-16 h-16 bg-rose-50 rounded-2xl border border-rose-100 flex items-center justify-center mx-auto text-[#DC2626]">
-                  <AlertCircle className="h-10 w-10" />
+                <div className="w-16 h-16 rounded-2xl clay-tile text-[#F43F5E] flex items-center justify-center mx-auto">
+                  <AlertCircle className="h-9 w-9 text-[#F43F5E]" />
                 </div>
                 <div className="space-y-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200 inline-block">
+                  <span className="clay-chip clay-chip-danger">
                     Verification Failed
                   </span>
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-extrabold text-[#1B1640]">
                     Unable to verify attendance
                   </h3>
-                  <p className="text-xs text-rose-600 font-medium px-2 py-2 bg-rose-50/50 rounded-xl border border-rose-100">
+                  <p className="text-xs font-bold text-[#F43F5E] px-3 py-2 bg-rose-50/80 rounded-2xl border border-rose-200">
                     {errorMessage || 'Verification failed. Please try again.'}
                   </p>
                 </div>
@@ -398,7 +398,7 @@ export default function StudentCapture() {
                 <button
                   type="button"
                   onClick={handleTryAgain}
-                  className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all"
+                  className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
                 >
                   Try again
                 </button>
@@ -411,25 +411,25 @@ export default function StudentCapture() {
         <div
           className={
             flowStage === 'FACE_CHECK'
-              ? 'bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-6 text-center animate-in fade-in duration-200'
+              ? 'clay-card p-6 space-y-6 text-center'
               : 'fixed -left-[9999px] -top-[9999px] w-[320px] pointer-events-none'
           }
         >
           {/* Instruction Heading */}
           <div className="min-h-[56px] flex flex-col items-center justify-center">
             {subStep === 'FETCHING' && (
-              <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
-                <Loader2 className="h-4 w-4 animate-spin text-[#2563EB]" />
+              <div className="flex items-center gap-2 text-[#1B1640] font-bold text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-[#5B4BF0]" />
                 <span>Preparing face check...</span>
               </div>
             )}
 
             {subStep === 'LOOK_STRAIGHT' && (
               <div className="space-y-1">
-                <h3 className="text-2xl font-extrabold text-[#0F172A] tracking-tight">
+                <h3 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">
                   Look straight
                 </h3>
-                <p className="text-xs text-slate-500 font-medium">
+                <p className="text-xs text-[#5B6190] font-semibold">
                   Center your face and look directly at the lens
                 </p>
               </div>
@@ -450,15 +450,15 @@ export default function StudentCapture() {
                     </>
                   )}
                 </h3>
-                <p className="text-xs text-slate-500 font-medium">
+                <p className="text-xs text-[#5B6190] font-semibold">
                   Slowly rotate your head until check finishes
                 </p>
               </div>
             )}
 
             {subStep === 'SUBMITTING' && (
-              <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
-                <Loader2 className="h-4 w-4 animate-spin text-[#16A34A]" />
+              <div className="flex items-center gap-2 text-[#1B1640] font-bold text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-[#34D399]" />
                 <span>Verifying face & liveness...</span>
               </div>
             )}
@@ -467,23 +467,23 @@ export default function StudentCapture() {
           {/* Circular Camera Viewfinder with ONE persistent video */}
           <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto">
             {/* Outer Progress Ring */}
-            <div className="absolute -inset-2 rounded-full border-4 border-slate-100 overflow-hidden" />
+            <div className="absolute -inset-2 rounded-full border-4 border-slate-200/50 overflow-hidden" />
             <div
               className="absolute -inset-2 rounded-full border-4 border-transparent transition-all duration-300"
               style={{
-                borderTopColor: subStep === 'TURN_HEAD' ? '#D97706' : '#2563EB',
+                borderTopColor: subStep === 'TURN_HEAD' ? '#D97706' : '#5B4BF0',
                 borderRightColor:
                   progressPercent > 50
                     ? subStep === 'TURN_HEAD'
                       ? '#D97706'
-                      : '#2563EB'
+                      : '#5B4BF0'
                     : 'transparent',
                 transform: `rotate(${progressPercent * 3.6}deg)`,
               }}
             />
 
             {/* Viewfinder Circle */}
-            <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 border-4 border-white shadow-lg relative">
+            <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 border-4 border-white shadow-xl relative">
               <video
                 ref={videoRef}
                 autoPlay
@@ -499,9 +499,9 @@ export default function StudentCapture() {
 
               {/* Submitting Overlay */}
               {subStep === 'SUBMITTING' && (
-                <div className="absolute inset-0 bg-[#0F172A]/70 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2 p-4">
+                <div className="absolute inset-0 bg-[#1B1640]/80 flex flex-col items-center justify-center text-white space-y-2 p-4">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />
-                  <p className="text-xs font-semibold">Submitting attendance...</p>
+                  <p className="text-xs font-bold">Submitting attendance...</p>
                 </div>
               )}
             </div>
@@ -509,13 +509,13 @@ export default function StudentCapture() {
 
           {/* Progress Bar */}
           <div className="space-y-1.5 pt-2">
-            <div className="flex justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+            <div className="flex justify-between text-[11px] font-extrabold text-[#5B6190] uppercase tracking-wider">
               <span>Progress</span>
               <span>{progressPercent}%</span>
             </div>
-            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+            <div className="w-full bg-[#E8EEFB] h-2 rounded-full overflow-hidden shadow-inner">
               <div
-                className="h-full bg-[#0F172A] rounded-full transition-all duration-300"
+                className="h-full bg-gradient-to-r from-[#5B4BF0] to-[#4F46E5] rounded-full transition-all duration-300"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -524,27 +524,27 @@ export default function StudentCapture() {
 
         {/* STEP 1: CODE ENTRY */}
         {flowStage === 'CODE' && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-5 animate-in fade-in duration-200">
+          <div className="clay-card p-6 space-y-5">
             <div className="text-center space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100 inline-block">
+              <span className="clay-chip clay-chip-pressed text-[10px]">
                 Attendance Check-in
               </span>
-              <h3 className="text-lg font-bold text-slate-900">Enter Session Code</h3>
-              <p className="text-xs text-slate-500">
+              <h3 className="text-lg font-extrabold text-[#1B1640]">Enter Session Code</h3>
+              <p className="text-xs font-semibold text-[#5B6190]">
                 Enter the 6-character code displayed by your faculty
               </p>
             </div>
 
             {errorMessage && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-red-500" />
+              <div className="clay-chip-danger px-3.5 py-2.5 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
             <form onSubmit={handleStartFaceCheck} className="space-y-5">
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-center mb-2.5">
+                <label className="label-clay block text-center mb-2.5">
                   6-Character Session Code
                 </label>
                 <div className="flex justify-between gap-1.5 sm:gap-2 max-w-[300px] mx-auto">
@@ -562,7 +562,7 @@ export default function StudentCapture() {
                       onChange={(e) => handleDigitChange(idx, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(idx, e)}
                       onPaste={handlePaste}
-                      className="w-10 h-12 sm:w-11 sm:h-13 text-center font-mono text-xl font-bold uppercase rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 shadow-xs transition-all"
+                      className="w-10 h-12 sm:w-11 sm:h-13 text-center font-mono text-xl font-black uppercase clay-tile-code"
                       aria-label={`Digit ${idx + 1}`}
                     />
                   ))}
@@ -572,16 +572,16 @@ export default function StudentCapture() {
               <button
                 type="submit"
                 disabled={fullCode.length !== 6}
-                className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
               >
                 Start Face Check
               </button>
             </form>
 
             {user.name && (
-              <div className="text-center pt-1 border-t border-slate-100">
-                <p className="text-[11px] text-slate-400">
-                  Signed in as <span className="font-semibold text-slate-600">{user.name}</span> ({user.student_id})
+              <div className="text-center pt-2 border-t border-slate-200/60">
+                <p className="text-[11px] font-semibold text-[#5B6190]">
+                  Signed in as <span className="font-extrabold text-[#1B1640]">{user.name}</span> ({user.student_id})
                 </p>
               </div>
             )}
