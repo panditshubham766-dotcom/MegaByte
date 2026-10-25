@@ -128,7 +128,7 @@ CREATE TABLE verification_sessions (
 CREATE TABLE liveness_challenges (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    session_id REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+    session_id UUID REFERENCES attendance_sessions(id) ON DELETE CASCADE,
     action TEXT CHECK (action IN ('TURN_LEFT', 'TURN_RIGHT')),
     location_lat DOUBLE PRECISION,
     location_lon DOUBLE PRECISION,
