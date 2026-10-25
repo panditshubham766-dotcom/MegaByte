@@ -469,6 +469,12 @@ export default function FacultyReview() {
                         <h3 className="font-extrabold text-sm text-[#1B1640] truncate">{sub.name}</h3>
                         <p className="text-xs font-mono font-semibold text-[#5B5F8A] truncate mt-0.5">{sub.student_id || 'No ID'}</p>
                       </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {sub.face_match_score !== undefined && sub.face_match_score !== null && (
+                          <span className="clay-chip clay-chip-pressed text-[10px]">
+                            {Math.round(sub.face_match_score * 100)}%
+                          </span>
+                        )}
                         {sub.location_verified && (
                           <span className="clay-chip clay-chip-lavender text-[10px] flex items-center gap-1">
                             <MapPin className="h-2.5 w-2.5 text-indigo-600" />

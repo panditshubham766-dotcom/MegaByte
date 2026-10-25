@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Clock, Play, History, X, MapPin, Plus } from 'lucide-react';
+import { LogOut, Play, History, X, MapPin, Plus } from 'lucide-react';
 
 export default function FacultyDashboard() {
   const [presetSeconds, setPresetSeconds] = useState(300);
