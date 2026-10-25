@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, StopCircle, RefreshCw, Trash2, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, StopCircle, RefreshCw, Trash2, X, AlertCircle, MapPin } from 'lucide-react';
 
 interface SessionData {
   id: string;
@@ -10,6 +10,11 @@ interface SessionData {
   ended_at?: string | null;
   created_at?: string | null;
   server_now: string;
+  classroom_id?: string | null;
+  classroom_name?: string | null;
+  radius_meters?: number | null;
+  max_accuracy_meters?: number | null;
+  verification_policy?: 'GPS_ONLY' | 'WIFI_ONLY' | 'GPS_OR_WIFI' | 'GPS_AND_WIFI' | null;
 }
 
 export default function FacultyPresentation() {
@@ -242,9 +247,20 @@ export default function FacultyPresentation() {
       </div>
 
       <div className="text-center w-full max-w-4xl my-auto">
-        <h1 className="text-2xl md:text-4xl text-gray-400 mb-4 md:mb-6 tracking-wider uppercase">
+        <h1 className="text-2xl md:text-4xl text-gray-400 mb-2 md:mb-3 tracking-wider uppercase">
           Attendance Code
         </h1>
+
+        {session?.classroom_id ? (
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-sm font-semibold mb-6">
+            <MapPin className="h-4 w-4" />
+            <span>Classroom: {session.classroom_name || 'Classroom'} • [{session.verification_policy || 'GPS_ONLY'}] Radius: {session.radius_meters || 100}m</span>
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gray-800/80 border border-gray-700 text-gray-400 text-xs font-semibold mb-6">
+            <span>🌐 Presence Verification: Disabled (Remote / Online)</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-6 gap-2 sm:gap-3 md:gap-4 w-full mb-6 max-w-3xl mx-auto">
           {codeChars.map((char, index) => (

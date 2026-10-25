@@ -44,7 +44,7 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
     try {
         await markExpired();
 
-        const { durationSeconds, durationMinutes } = req.body;
+        const { durationSeconds, durationMinutes, classroom_id } = req.body;
         let totalSeconds: number;
 
         if (durationSeconds !== undefined) {
@@ -117,14 +117,28 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
             classId = classRes.rows[0].id;
         }
 
+        // Resolve and validate classroom_id if provided (geofencing is optional)
+        let resolvedClassroomId: string | null = null;
+        if (classroom_id) {
+            const classroomRes = await pool.query(
+                `SELECT id FROM classrooms WHERE id = $1 AND is_active = TRUE`,
+                [classroom_id]
+            );
+            if (!classroomRes.rowCount || classroomRes.rowCount === 0) {
+                res.status(400).json({ message: 'Classroom not found or inactive' });
+                return;
+            }
+            resolvedClassroomId = classroom_id;
+        }
+
         const randomCode = generateRandomCode();
-        
+
         const insertSession = await pool.query(
             `INSERT INTO attendance_sessions 
-            (faculty_id, subject_id, class_id, random_code, status, created_at, expires_at) 
-            VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW() + make_interval(secs => $5)) 
-            RETURNING id, random_code, status, created_at, expires_at, ended_at, NOW() as server_now`,
-            [facultyId, subjectId, classId, randomCode, totalSeconds]
+            (faculty_id, subject_id, class_id, random_code, status, created_at, expires_at, classroom_id) 
+            VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW() + make_interval(secs => $5), $6) 
+            RETURNING id, random_code, status, created_at, expires_at, ended_at, classroom_id, NOW() as server_now`,
+            [facultyId, subjectId, classId, randomCode, totalSeconds, resolvedClassroomId]
         );
 
         const newSession = insertSession.rows[0];
@@ -152,10 +166,14 @@ export const getActiveSession = async (req: AuthRequest, res: Response): Promise
         }
 
         const sessionRes = await pool.query(
-            `SELECT id, random_code, status, expires_at, ended_at, NOW() as server_now 
-             FROM attendance_sessions 
-             WHERE faculty_id = $1 AND status = 'ACTIVE' AND expires_at > NOW() 
-             ORDER BY created_at DESC LIMIT 1`,
+            `SELECT s.id, s.random_code, s.status, s.expires_at, s.ended_at, s.classroom_id,
+                    c.name AS classroom_name,
+                    c.radius_meters, c.max_accuracy_meters, c.verification_policy,
+                    NOW() as server_now 
+             FROM attendance_sessions s
+             LEFT JOIN classrooms c ON c.id = s.classroom_id
+             WHERE s.faculty_id = $1 AND s.status = 'ACTIVE' AND s.expires_at > NOW() 
+             ORDER BY s.created_at DESC LIMIT 1`,
             [facultyId]
         );
 
@@ -184,9 +202,14 @@ export const getSessionById = async (req: AuthRequest, res: Response): Promise<v
         }
 
         const sessionRes = await pool.query(
-            `SELECT id, faculty_id, subject_id, random_code, status, expires_at, ended_at, created_at, NOW() as server_now 
-             FROM attendance_sessions 
-             WHERE id = $1`,
+            `SELECT s.id, s.faculty_id, s.subject_id, s.random_code, s.status,
+                    s.expires_at, s.ended_at, s.created_at, s.classroom_id,
+                    c.name AS classroom_name,
+                    c.radius_meters, c.max_accuracy_meters, c.verification_policy,
+                    NOW() as server_now
+             FROM attendance_sessions s
+             LEFT JOIN classrooms c ON c.id = s.classroom_id
+             WHERE s.id = $1`,
             [id]
         );
 
@@ -358,7 +381,13 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
                 a.status,
                 a.face_match_score,
                 a.liveness_score,
-                a.edit_reason
+                a.edit_reason,
+                a.location_distance_m,
+                a.location_accuracy_m,
+                a.location_verified,
+                a.wifi_bssid,
+                a.wifi_verified,
+                a.wifi_verification_status
              FROM enrollments e
              JOIN users u ON e.student_id = u.id
              LEFT JOIN attendance_records a ON a.session_id = $1 AND a.student_id = u.id
@@ -379,7 +408,13 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
                     a.status,
                     a.face_match_score,
                     a.liveness_score,
-                    a.edit_reason
+                    a.edit_reason,
+                    a.location_distance_m,
+                    a.location_accuracy_m,
+                    a.location_verified,
+                    a.wifi_bssid,
+                    a.wifi_verified,
+                    a.wifi_verification_status
                  FROM attendance_records a
                  JOIN users u ON a.student_id = u.id
                  WHERE a.session_id = $1
@@ -396,7 +431,13 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
             status: r.status || null,
             face_match_score: r.face_match_score !== null && r.face_match_score !== undefined ? Number(r.face_match_score) : null,
             liveness_score: r.liveness_score !== null && r.liveness_score !== undefined ? Number(r.liveness_score) : null,
-            edit_reason: r.edit_reason || null
+            edit_reason: r.edit_reason || null,
+            location_distance_m: r.location_distance_m !== null && r.location_distance_m !== undefined ? Number(r.location_distance_m) : null,
+            location_accuracy_m: r.location_accuracy_m !== null && r.location_accuracy_m !== undefined ? Number(r.location_accuracy_m) : null,
+            location_verified: Boolean(r.location_verified),
+            wifi_bssid: r.wifi_bssid || null,
+            wifi_verified: Boolean(r.wifi_verified),
+            wifi_verification_status: r.wifi_verification_status || 'NOT_REQUIRED'
         }));
 
         res.status(200).json(formatted);

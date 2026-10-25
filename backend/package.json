@@ -6,14 +6,19 @@
   "scripts": {
     "start": "ts-node src/server.ts",
     "dev": "nodemon src/server.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "test:geo": "node --experimental-strip-types test_geo.ts",
+    "test:wifi": "node --experimental-strip-types test_wifi.ts",
+    "test:verification": "node --experimental-strip-types test_verification.ts",
+    "test:enforcement": "node --experimental-strip-types test_enforcement.ts",
+    "test:e2e": "node --experimental-strip-types test_e2e.ts",
+    "test": "node --experimental-strip-types test_geo.ts && node --experimental-strip-types test_wifi.ts && node --experimental-strip-types test_verification.ts && node --experimental-strip-types test_enforcement.ts && node --experimental-strip-types test_e2e.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-core": "^4.22.0",
-    "@types/uuid": "^10.0.0",
     "@vladmandic/human": "^3.3.6",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
@@ -37,6 +42,7 @@
     "@types/node": "^20.12.7",
     "@types/pg": "^8.11.6",
     "@types/pngjs": "^6.0.5",
+    "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"

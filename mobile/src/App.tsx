@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './pages/Login';
 import Capture from './pages/Capture';
 import MyAttendance from './pages/MyAttendance';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -9,9 +10,9 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/capture" element={<Capture />} />
+        <Route path="/capture" element={<ProtectedRoute allowedRoles={['STUDENT']}><Capture /></ProtectedRoute>} />
         <Route path="/verify" element={<Navigate to="/capture" replace />} />
-        <Route path="/my-attendance" element={<MyAttendance />} />
+        <Route path="/my-attendance" element={<ProtectedRoute allowedRoles={['STUDENT']}><MyAttendance /></ProtectedRoute>} />
         <Route path="/records" element={<Navigate to="/my-attendance" replace />} />
       </Routes>
     </Router>

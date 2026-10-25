@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Check, X, ArrowLeft, RefreshCw, Download, Users } from 'lucide-react';
+import { Check, X, ArrowLeft, RefreshCw, Download, Users, MapPin, Wifi } from 'lucide-react';
 
 interface PendingSubmission {
   record_id: string;
@@ -10,6 +10,12 @@ interface PendingSubmission {
   status: string;
   face_match_score?: number | null;
   liveness_score?: number | null;
+  location_distance_m?: number | null;
+  location_accuracy_m?: number | null;
+  location_verified?: boolean | null;
+  wifi_bssid?: string | null;
+  wifi_verified?: boolean | null;
+  wifi_verification_status?: string | null;
 }
 
 interface SessionInfo {
@@ -315,6 +321,18 @@ export default function FacultyReview() {
                       {sub.liveness_score !== undefined && sub.liveness_score !== null && (
                         <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-green-50 text-green-700 border border-green-200 whitespace-nowrap">
                           Live {Math.round(sub.liveness_score * 100)}%
+                        </span>
+                      )}
+                      {sub.location_verified && (
+                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          <span>{sub.location_distance_m !== null && sub.location_distance_m !== undefined ? `${Math.round(sub.location_distance_m)}m` : 'In Room'}</span>
+                        </span>
+                      )}
+                      {sub.wifi_verified && (
+                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap flex items-center gap-1">
+                          <Wifi className="h-3 w-3" />
+                          <span>Wi-Fi AP</span>
                         </span>
                       )}
                     </div>

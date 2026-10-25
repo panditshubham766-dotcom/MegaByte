@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit3, Download, RefreshCw, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Edit3, Download, RefreshCw, X, AlertCircle, MapPin, Wifi } from 'lucide-react';
 
 interface AttendanceRow {
   student_id: string;
@@ -10,6 +10,13 @@ interface AttendanceRow {
   face_match_score?: number | null;
   liveness_score?: number | null;
   edit_reason?: string | null;
+  location_distance_m?: number | null;
+  location_accuracy_m?: number | null;
+  location_verified?: boolean | null;
+  wifi_bssid?: string | null;
+  wifi_ssid?: string | null;
+  wifi_verified?: boolean | null;
+  wifi_verification_status?: string | null;
 }
 
 export default function FacultyAttendance() {
@@ -269,6 +276,9 @@ export default function FacultyAttendance() {
                     Liveness
                   </th>
                   <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                    Presence
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
                     Edit Reason
                   </th>
                   <th scope="col" className="px-6 py-3.5 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
@@ -279,7 +289,7 @@ export default function FacultyAttendance() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading && students.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                       <div className="flex justify-center items-center">
                         <RefreshCw className="h-6 w-6 animate-spin text-blue-600 mr-2" />
                         Loading attendance roster...
@@ -288,7 +298,7 @@ export default function FacultyAttendance() {
                   </tr>
                 ) : students.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                       No enrolled students found for this session.
                     </td>
                   </tr>
@@ -313,6 +323,31 @@ export default function FacultyAttendance() {
                         {student.liveness_score !== null && student.liveness_score !== undefined
                           ? `${Math.round(student.liveness_score * 100)}%`
                           : '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        <div className="flex flex-col gap-1 items-start">
+                          {student.location_verified ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <MapPin className="h-3 w-3" />
+                              <span>{student.location_distance_m !== null && student.location_distance_m !== undefined ? `${Math.round(student.location_distance_m)}m` : 'GPS In-Room'}</span>
+                            </span>
+                          ) : null}
+                          {student.wifi_verified ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200" title={student.wifi_bssid || 'Verified Wi-Fi AP'}>
+                              <Wifi className="h-3 w-3" />
+                              <span>Wi-Fi AP</span>
+                            </span>
+                          ) : student.wifi_verification_status === 'UNAPPROVED_ACCESS_POINT' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-200" title={`Unapproved AP: ${student.wifi_bssid || ''}`}>
+                              <Wifi className="h-3 w-3" />
+                              <span>Wrong AP</span>
+                            </span>
+                          ) : null}
+                          {!student.location_verified && !student.wifi_verified && student.status ? (
+                            <span className="text-xs text-gray-400">Remote / None</span>
+                          ) : null}
+                          {!student.status ? '—' : null}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate" title={student.edit_reason || ''}>
                         {student.edit_reason ? (

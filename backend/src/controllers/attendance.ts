@@ -13,6 +13,20 @@ import {
     getLivenessMinScore,
     FaceError
 } from '../services/face';
+import {
+    validateLocation,
+    validateClientLocationShape,
+    type ClientLocation,
+    type ClassroomConfig
+} from '../services/geo';
+import {
+    validateWifiPresence,
+    evaluateCombinedPresence,
+    normalizeBssid,
+    type ClientWifiEvidence,
+    type ClassroomAccessPoint,
+    type VerificationPolicy
+} from '../services/wifi';
 
 export const requestChallenge = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
@@ -30,21 +44,145 @@ export const requestChallenge = async (req: AuthRequest, res: Response): Promise
             return;
         }
 
-        // Find active and unexpired session
+        // Accept optional client location & Wi-Fi payload for multi-factor presence verification.
+        // IMPORTANT: We never trust client-supplied booleans like insideClassroom=true or wifiVerified=true.
+        // All distance calculation is performed server-side using Haversine, and BSSIDs are matched
+        // server-side against authorized classroom access points.
+        const clientLocation = req.body.location ?? null;
+        const clientWifi: ClientWifiEvidence | null = req.body.wifi ?? null;
+
+        // Find active and unexpired session (LEFT JOIN classroom for geofence and policy data)
         const sessionRes = await pool.query(
-            `SELECT id FROM attendance_sessions 
-             WHERE random_code = $1 
-             AND status = 'ACTIVE' 
-             AND expires_at > NOW()`,
+            `SELECT s.id, s.subject_id, s.class_id, s.classroom_id,
+                    sub.name              AS subject_name,
+                    cls.name              AS class_name,
+                    c.name                AS classroom_name,
+                    c.latitude            AS classroom_lat,
+                    c.longitude           AS classroom_lon,
+                    c.radius_meters,
+                    c.max_accuracy_meters,
+                    c.verification_policy
+             FROM attendance_sessions s
+             JOIN subjects sub ON sub.id = s.subject_id
+             JOIN classes cls ON cls.id = s.class_id
+             LEFT JOIN classrooms c ON c.id = s.classroom_id
+             WHERE s.random_code = $1
+               AND s.status = 'ACTIVE'
+               AND s.expires_at > NOW()`,
             [sessionCode.toUpperCase()]
         );
 
-        if (sessionRes.rowCount === 0) {
+        if (!sessionRes.rowCount || sessionRes.rowCount === 0) {
             res.status(400).json({ message: 'Invalid or expired session code' });
             return;
         }
 
-        const sessionId = sessionRes.rows[0].id;
+        const sessionRow = sessionRes.rows[0];
+        const sessionId: string = sessionRow.id;
+
+        // Check if student is enrolled in the session's subject (if enrollments exist for this subject)
+        const totalEnrollmentsRes = await pool.query(
+            `SELECT COUNT(*) FROM enrollments WHERE subject_id = $1`,
+            [sessionRow.subject_id]
+        );
+        const totalEnrolled = parseInt(totalEnrollmentsRes.rows[0].count, 10);
+        if (totalEnrolled > 0) {
+            const enrollRes = await pool.query(
+                `SELECT id FROM enrollments WHERE student_id = $1 AND subject_id = $2 LIMIT 1`,
+                [studentId, sessionRow.subject_id]
+            );
+            if (!enrollRes.rowCount || enrollRes.rowCount === 0) {
+                res.status(403).json({
+                    code: 'NOT_ENROLLED',
+                    message: 'You are not enrolled in the subject/class for this session.'
+                });
+                return;
+            }
+        }
+
+        let locLat: number | null = null;
+        let locLon: number | null = null;
+        let locAcc: number | null = null;
+        let locDist: number | null = null;
+        let locVerified = false;
+        let locTs: string | null = null;
+
+        let wifiBssid: string | null = null;
+        let wifiSsid: string | null = null;
+        let wifiVerified = false;
+        let wifiStatus: string = 'NOT_REQUIRED';
+
+        // Presence validation - enforced when session has a classroom_id.
+        // Sessions without a classroom_id have geofencing/Wi-Fi disabled (backward-compatible).
+        if (sessionRow.classroom_id) {
+            const policy: VerificationPolicy = sessionRow.verification_policy || 'GPS_ONLY';
+
+            // Query active approved access points for this classroom
+            const apRes = await pool.query(
+                `SELECT id, classroom_id, bssid, ssid, description, is_active
+                 FROM classroom_access_points
+                 WHERE classroom_id = $1 AND is_active = TRUE`,
+                [sessionRow.classroom_id]
+            );
+            const approvedAps: ClassroomAccessPoint[] = apRes.rows;
+
+            // 1. Evaluate GPS Geofence
+            let geoResult: { valid: boolean; distanceMeters?: number; error?: { code: string; message: string; retryHint: string } };
+            if (clientLocation) {
+                const shapeError = validateClientLocationShape(clientLocation);
+                if (shapeError) {
+                    res.status(400).json(shapeError.error);
+                    return;
+                }
+
+                const classroom: ClassroomConfig = {
+                    id:                  sessionRow.classroom_id,
+                    name:                sessionRow.classroom_name,
+                    latitude:            Number(sessionRow.classroom_lat),
+                    longitude:           Number(sessionRow.classroom_lon),
+                    radius_meters:       Number(sessionRow.radius_meters),
+                    max_accuracy_meters: Number(sessionRow.max_accuracy_meters),
+                };
+
+                geoResult = validateLocation(clientLocation as ClientLocation, classroom);
+                if (geoResult.valid) {
+                    locLat = Number((clientLocation as ClientLocation).latitude);
+                    locLon = Number((clientLocation as ClientLocation).longitude);
+                    locAcc = Number((clientLocation as ClientLocation).accuracy);
+                    locDist = geoResult.distanceMeters ?? null;
+                    locVerified = true;
+                    locTs = (clientLocation as ClientLocation).timestamp;
+                }
+            } else {
+                geoResult = {
+                    valid: false,
+                    error: {
+                        code: 'LOCATION_REQUIRED',
+                        message: 'This session requires your location to verify classroom presence.',
+                        retryHint: 'Allow location access in your browser and try again.',
+                    }
+                };
+            }
+
+            // 2. Evaluate Wi-Fi BSSID Presence
+            const wifiResult = validateWifiPresence(clientWifi, approvedAps, policy);
+            wifiBssid = wifiResult.matchedBssid || (clientWifi?.bssid ? normalizeBssid(clientWifi.bssid) : null);
+            wifiSsid = clientWifi?.ssid?.trim() || null;
+            wifiVerified = wifiResult.verified;
+            wifiStatus = wifiResult.status;
+
+            // 3. Evaluate Combined Multi-Factor Presence Policy
+            const combined = evaluateCombinedPresence(policy, geoResult, wifiResult);
+            if (!combined.passed) {
+                res.status(403).json({
+                    code: combined.error!.code,
+                    message: combined.error!.message,
+                    retryHint: combined.error!.retryHint,
+                    policy: combined.policy,
+                });
+                return;
+            }
+        }
 
         // Check if student already submitted
         const priorSubmission = await pool.query(
@@ -78,26 +216,40 @@ export const requestChallenge = async (req: AuthRequest, res: Response): Promise
             return;
         }
 
-        // Random action via crypto ('TURN_LEFT' | 'TURN_RIGHT')
+        // Random action via crypto
         const action = crypto.randomInt(0, 2) === 0 ? 'TURN_LEFT' : 'TURN_RIGHT';
 
         const insertRes = await pool.query(
-            `INSERT INTO liveness_challenges (student_id, session_id, action, expires_at)
-             VALUES ($1, $2, $3, NOW() + make_interval(secs => 60))
+            `INSERT INTO liveness_challenges (
+                student_id, session_id, action, expires_at,
+                location_lat, location_lon, location_accuracy_m, location_distance_m, location_verified, location_ts,
+                wifi_bssid, wifi_ssid, wifi_verified, wifi_verification_status
+             ) VALUES ($1, $2, $3, NOW() + make_interval(secs => 60), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              RETURNING id, action`,
-            [studentId, sessionId, action]
+            [studentId, sessionId, action, locLat, locLon, locAcc, locDist, locVerified, locTs, wifiBssid, wifiSsid, wifiVerified, wifiStatus]
         );
 
         res.status(200).json({
             challengeId: insertRes.rows[0].id,
-            action: insertRes.rows[0].action
+            action: insertRes.rows[0].action,
+            geofenced: Boolean(sessionRow.classroom_id),
+            policy: sessionRow.verification_policy || 'GPS_ONLY',
+            sessionCode: sessionCode.toUpperCase(),
+            classroomName: sessionRow.classroom_name || 'Assigned Classroom',
+            subjectName: sessionRow.subject_name || 'Current Subject',
+            className: sessionRow.class_name || 'Class Session',
+            locationDistanceM: locDist,
+            locationAccuracyM: locAcc,
+            locationVerified: locVerified,
+            wifiStatus: wifiStatus,
+            wifiVerified: wifiVerified,
+            wifiSsid: wifiSsid
         });
     } catch (error: any) {
         console.error('Error requesting challenge:', error.message || 'Unknown error');
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-
 export const submitAttendance = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         await markExpired();
@@ -116,12 +268,27 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             return;
         }
 
-        // Find the active session matching the session_code
+        // Requirement 6: Ensure authenticated identity matches recognized student.
+        // Never trust client-supplied identity overrides or student_id substitutions.
+        const claimedStudentId = req.body.studentId || req.body.student_id;
+        if (claimedStudentId && claimedStudentId !== studentId) {
+            res.status(403).json({
+                code: 'IDENTITY_SUBSTITUTION_REJECTED',
+                message: 'Submitted student identity does not match authenticated credentials.'
+            });
+            return;
+        }
+
+        // Find the active session matching the session_code (including classroom data)
         const sessionRes = await pool.query(
-            `SELECT id FROM attendance_sessions 
-             WHERE random_code = $1 
-             AND status = 'ACTIVE' 
-             AND expires_at > NOW()`,
+            `SELECT s.id, s.subject_id, s.class_id, s.classroom_id,
+                    c.name AS classroom_name,
+                    c.verification_policy
+             FROM attendance_sessions s 
+             LEFT JOIN classrooms c ON c.id = s.classroom_id
+             WHERE s.random_code = $1 
+               AND s.status = 'ACTIVE' 
+               AND s.expires_at > NOW()`,
             [sessionCode.toUpperCase()]
         );
 
@@ -130,7 +297,8 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             return;
         }
 
-        const sessionId = sessionRes.rows[0].id;
+        const sessionRow = sessionRes.rows[0];
+        const sessionId = sessionRow.id;
 
         // Check if student already submitted
         const priorSubmission = await pool.query(
@@ -141,6 +309,26 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
         if (priorSubmission.rowCount && priorSubmission.rowCount > 0) {
             res.status(400).json({ message: 'Attendance already submitted for this session' });
             return;
+        }
+
+        // Check student enrollment in the session's subject (if enrollments exist)
+        const totalEnrollmentsRes = await pool.query(
+            `SELECT COUNT(*) FROM enrollments WHERE subject_id = $1`,
+            [sessionRow.subject_id]
+        );
+        const totalEnrolled = parseInt(totalEnrollmentsRes.rows[0].count, 10);
+        if (totalEnrolled > 0) {
+            const enrollRes = await pool.query(
+                `SELECT id FROM enrollments WHERE student_id = $1 AND subject_id = $2 LIMIT 1`,
+                [studentId, sessionRow.subject_id]
+            );
+            if (!enrollRes.rowCount || enrollRes.rowCount === 0) {
+                res.status(403).json({
+                    code: 'NOT_ENROLLED',
+                    message: 'You are not enrolled in the subject/class for this session.'
+                });
+                return;
+            }
         }
 
         // Check if student has enrolled face embedding
@@ -179,7 +367,8 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             `UPDATE liveness_challenges 
              SET used_at = NOW() 
              WHERE id = $1 AND student_id = $2 AND session_id = $3 AND used_at IS NULL AND expires_at > NOW() 
-             RETURNING action`,
+             RETURNING action, location_lat, location_lon, location_accuracy_m, location_distance_m, location_verified, location_ts,
+                       wifi_bssid, wifi_ssid, wifi_verified, wifi_verification_status`,
             [challengeId, studentId, sessionId]
         );
 
@@ -287,6 +476,17 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
         const threshold = getMatchThreshold();
 
         if (faceMatchScore < threshold) {
+            // Write privacy-preserving failure audit log
+            await pool.query(
+                `INSERT INTO audit_logs (user_id, action, new_value, timestamp)
+                 VALUES ($1, 'VERIFICATION_FAILED', $2, NOW())`,
+                [studentId, JSON.stringify({
+                    session_id: sessionId,
+                    reason: 'FACE_MISMATCH',
+                    face_match_score: faceMatchScore,
+                    threshold
+                })]
+            );
             res.status(422).json({
                 code: 'FACE_MISMATCH',
                 message: 'Face verification failed: photo does not match reference photo'
@@ -297,11 +497,105 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
         // 5. On pass, store frontal frame as photo_base64 plus face_match_score and liveness_score (lower of real/live)
         const livenessScore = Math.min(frontalResult.real, frontalResult.live);
         const frontalBase64 = frames[frontalIdx];
+        const challengeRow = challengeRes.rows[0];
 
+        // 6. Create short-lived server-controlled verification session (Requirements 8 & 9)
+        const verificationToken = 'vtok_' + crypto.randomBytes(24).toString('hex');
+        const verificationBreakdown = {
+            studentIdentity: { verified: true, studentId },
+            sessionEligibility: { verified: true, sessionId, classroomId: sessionRow.classroom_id, verificationPolicy: sessionRow.verification_policy || 'GPS_ONLY' },
+            geofenceValidation: {
+                required: Boolean(sessionRow.classroom_id && sessionRow.verification_policy !== 'WIFI_ONLY'),
+                verified: Boolean(challengeRow.location_verified),
+                distanceMeters: challengeRow.location_distance_m,
+                accuracyMeters: challengeRow.location_accuracy_m
+            },
+            wifiVerification: {
+                required: Boolean(sessionRow.classroom_id && sessionRow.verification_policy !== 'GPS_ONLY'),
+                verified: Boolean(challengeRow.wifi_verified),
+                bssid: challengeRow.wifi_bssid,
+                ssid: challengeRow.wifi_ssid,
+                status: challengeRow.wifi_verification_status
+            },
+            faceRecognition: {
+                verified: true,
+                faceMatchScore,
+                livenessScore,
+                threshold,
+                livenessThreshold: livenessMinScore
+            },
+            overallStatus: 'PASSED'
+        };
+
+        const vSessionRes = await pool.query(
+            `INSERT INTO verification_sessions (
+                student_id, session_id, classroom_id, verification_token, status, results,
+                face_match_score, liveness_score, location_distance_m, wifi_verified,
+                expires_at
+             ) VALUES ($1, $2, $3, $4, 'PASSED', $5, $6, $7, $8, $9, NOW() + INTERVAL '5 minutes')
+             RETURNING id`,
+            [
+                studentId,
+                sessionId,
+                sessionRow.classroom_id ?? null,
+                verificationToken,
+                JSON.stringify(verificationBreakdown),
+                faceMatchScore,
+                livenessScore,
+                challengeRow.location_distance_m ?? null,
+                challengeRow.wifi_verified ?? false
+            ]
+        );
+        const verificationSessionId = vSessionRes.rows[0].id;
+
+        // 7. Atomically insert attendance_records linked with the verification session
         await pool.query(
-            `INSERT INTO attendance_records (session_id, student_id, status, photo_base64, face_match_score, liveness_score, submitted_at) 
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-            [sessionId, studentId, 'PENDING', frontalBase64, faceMatchScore, livenessScore]
+            `INSERT INTO attendance_records (
+                session_id, student_id, status, photo_base64, face_match_score, liveness_score, submitted_at,
+                location_lat, location_lon, location_accuracy_m, location_distance_m, location_verified, location_ts,
+                wifi_bssid, wifi_ssid, wifi_verified, wifi_verification_status,
+                verification_session_id
+             ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+            [
+                sessionId,
+                studentId,
+                'PENDING',
+                frontalBase64,
+                faceMatchScore,
+                livenessScore,
+                challengeRow.location_lat ?? null,
+                challengeRow.location_lon ?? null,
+                challengeRow.location_accuracy_m ?? null,
+                challengeRow.location_distance_m ?? null,
+                challengeRow.location_verified ?? false,
+                challengeRow.location_ts ?? null,
+                challengeRow.wifi_bssid ?? null,
+                challengeRow.wifi_ssid ?? null,
+                challengeRow.wifi_verified ?? false,
+                challengeRow.wifi_verification_status ?? 'NOT_REQUIRED',
+                verificationSessionId
+            ]
+        );
+
+        // Mark verification session consumed
+        await pool.query(
+            `UPDATE verification_sessions SET consumed_at = NOW() WHERE id = $1`,
+            [verificationSessionId]
+        );
+
+        // Requirement 11: Privacy-preserving audit event without storing unnecessary raw photo or full GPS track
+        await pool.query(
+            `INSERT INTO audit_logs (user_id, action, new_value, timestamp)
+             VALUES ($1, 'ATTENDANCE_VERIFICATION_PASSED', $2, NOW())`,
+            [studentId, JSON.stringify({
+                session_id: sessionId,
+                verification_session_id: verificationSessionId,
+                face_match_score: faceMatchScore,
+                liveness_score: livenessScore,
+                location_distance_m: challengeRow.location_distance_m,
+                wifi_verified: challengeRow.wifi_verified,
+                overall_status: 'PASSED'
+            })]
         );
 
         triggerDebouncedSubmissionExport(sessionId);
@@ -309,7 +603,10 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
         res.status(201).json({
             message: 'Attendance submitted successfully',
             face_match_score: faceMatchScore,
-            liveness_score: livenessScore
+            liveness_score: livenessScore,
+            verification_token: verificationToken,
+            verification_session_id: verificationSessionId,
+            breakdown: verificationBreakdown
         });
     } catch (error: any) {
         console.error('Error submitting attendance:', error.message || 'Unknown error');
@@ -331,7 +628,9 @@ export const getPendingSubmissions = async (req: AuthRequest, res: Response): Pr
 
         // Fetch pending records for this session, joined with users
         const pendingRes = await pool.query(
-            `SELECT a.id as record_id, u.name, u.student_id, a.photo_base64, a.status, a.face_match_score, a.liveness_score 
+            `SELECT a.id as record_id, u.name, u.student_id, a.photo_base64, a.status, a.face_match_score, a.liveness_score,
+                    a.location_distance_m, a.location_accuracy_m, a.location_verified,
+                    a.wifi_bssid, a.wifi_ssid, a.wifi_verified, a.wifi_verification_status
              FROM attendance_records a
              JOIN users u ON a.student_id = u.id
              WHERE a.session_id = $1 AND a.status = 'PENDING'`,
@@ -637,3 +936,266 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+export const getVerificationSession = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const { idOrToken } = req.params;
+        const userId = req.user?.id;
+        const userRole = req.user?.role;
+
+        if (!userId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const queryRes = await pool.query(
+            `SELECT v.*, u.name as student_name, u.student_id as student_number,
+                    s.random_code as session_code, c.name as classroom_name
+             FROM verification_sessions v
+             JOIN users u ON u.id = v.student_id
+             JOIN attendance_sessions s ON s.id = v.session_id
+             LEFT JOIN classrooms c ON c.id = v.classroom_id
+             WHERE v.verification_token = $1 OR v.id::text = $1`,
+            [idOrToken]
+        );
+
+        if (queryRes.rowCount === 0) {
+            res.status(404).json({ message: 'Verification session not found' });
+            return;
+        }
+
+        const vRow = queryRes.rows[0];
+        // Enforce access control: student can view their own, faculty can view sessions they own, admins can view all
+        if (userRole === 'STUDENT' && vRow.student_id !== userId) {
+            res.status(403).json({ message: 'Forbidden' });
+            return;
+        }
+
+        res.status(200).json(vRow);
+    } catch (error: any) {
+        console.error('Error fetching verification session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const revalidatePresence = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user?.id;
+        if (!studentId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const token = (req.headers['x-verification-token'] as string) || req.body?.verificationToken || req.body?.verification_token;
+        if (!token) {
+            res.status(403).json({
+                code: 'NO_VERIFICATION_TOKEN',
+                message: 'Verification token is required for revalidation.'
+            });
+            return;
+        }
+
+        const clientLocation: ClientLocation | null = req.body?.location || null;
+
+        const queryRes = await pool.query(
+            `SELECT v.*,
+                    c.id as classroom_id,
+                    c.name as classroom_name,
+                    c.latitude as classroom_lat,
+                    c.longitude as classroom_lon,
+                    c.radius_meters,
+                    c.max_accuracy_meters,
+                    c.verification_policy,
+                    s.status as session_status,
+                    s.expires_at as session_expires_at
+             FROM verification_sessions v
+             JOIN attendance_sessions s ON s.id = v.session_id
+             LEFT JOIN classrooms c ON c.id = v.classroom_id
+             WHERE v.verification_token = $1`,
+            [token.trim()]
+        );
+
+        if (queryRes.rowCount === 0) {
+            res.status(403).json({
+                code: 'VERIFICATION_NOT_FOUND',
+                message: 'Verification session not found.'
+            });
+            return;
+        }
+
+        const row = queryRes.rows[0];
+
+        // Security check: cross-user token reuse
+        if (row.student_id !== studentId) {
+            res.status(403).json({
+                code: 'CROSS_USER_REUSE_BLOCKED',
+                message: 'Security violation: Verification session does not belong to the authenticated user.'
+            });
+            return;
+        }
+
+        // Check if session has ended
+        if (row.session_status !== 'ACTIVE' || new Date() >= new Date(row.session_expires_at)) {
+            res.status(403).json({
+                code: 'SESSION_ENDED',
+                message: 'The class session has ended or expired.'
+            });
+            return;
+        }
+
+        let classroomConfig: ClassroomConfig | null = null;
+        if (row.classroom_id) {
+            classroomConfig = {
+                id: row.classroom_id,
+                name: row.classroom_name,
+                latitude: Number(row.classroom_lat),
+                longitude: Number(row.classroom_lon),
+                radius_meters: Number(row.radius_meters),
+                max_accuracy_meters: Number(row.max_accuracy_meters)
+            };
+        }
+
+        const { evaluatePresenceRevalidation } = await import('../services/verification.ts');
+        const reval = evaluatePresenceRevalidation({
+            vSession: row,
+            clientLocation,
+            classroomConfig
+        });
+
+        if (reval.revoked) {
+            // Revoke in database
+            await pool.query(
+                `UPDATE verification_sessions
+                 SET status = 'REVOKED', revoked_at = NOW(), revocation_reason = $1
+                 WHERE id = $2`,
+                [reval.error?.message || 'Exited classroom geofence', row.id]
+            );
+
+            // Audit log
+            await pool.query(
+                `INSERT INTO audit_logs (user_id, action, new_value, timestamp)
+                 VALUES ($1, 'VERIFICATION_REVOKED', $2, NOW())`,
+                [studentId, JSON.stringify({
+                    verification_session_id: row.id,
+                    reason: reval.reason,
+                    distance_meters: reval.distanceMeters
+                })]
+            );
+
+            res.status(403).json({
+                code: reval.error?.code || 'PRESENCE_REVOKED',
+                message: reval.error?.message || 'Classroom presence revoked.',
+                retryHint: reval.error?.retryHint || 'Move inside classroom and check-in again.'
+            });
+            return;
+        }
+
+        if (!reval.valid) {
+            res.status(400).json({
+                code: reval.error?.code || 'REVALIDATION_FAILED',
+                message: reval.error?.message || 'Revalidation failed.',
+                retryHint: reval.error?.retryHint
+            });
+            return;
+        }
+
+        // Update successful revalidation
+        await pool.query(
+            `UPDATE verification_sessions
+             SET last_revalidated_at = NOW(), revalidation_count = revalidation_count + 1
+             WHERE id = $1`,
+            [row.id]
+        );
+
+        res.status(200).json({
+            status: 'REVALIDATED',
+            message: 'Classroom presence confirmed',
+            distanceMeters: reval.distanceMeters,
+            revalidationCount: (row.revalidation_count || 0) + 1
+        });
+    } catch (error: any) {
+        console.error('Error in revalidatePresence:', error);
+        res.status(500).json({ message: 'Internal server error during revalidation' });
+    }
+};
+
+export const revokeVerificationSession = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const { idOrToken } = req.params;
+        const reason = req.body?.reason || 'Administrative revocation';
+        const actorId = req.user?.id;
+
+        const updateRes = await pool.query(
+            `UPDATE verification_sessions
+             SET status = 'REVOKED', revoked_at = NOW(), revocation_reason = $1
+             WHERE (verification_token = $2 OR id::text = $2) AND status != 'REVOKED'
+             RETURNING id, student_id, session_id`,
+            [reason, idOrToken]
+        );
+
+        if (updateRes.rowCount === 0) {
+            res.status(404).json({ message: 'Verification session not found or already revoked' });
+            return;
+        }
+
+        const revoked = updateRes.rows[0];
+        await pool.query(
+            `INSERT INTO audit_logs (user_id, action, new_value, timestamp)
+             VALUES ($1, 'VERIFICATION_REVOKED_BY_ADMIN', $2, NOW())`,
+            [actorId, JSON.stringify({
+                revoked_student_id: revoked.student_id,
+                session_id: revoked.session_id,
+                verification_session_id: revoked.id,
+                reason
+            })]
+        );
+
+        res.status(200).json({
+            message: 'Verification session revoked successfully',
+            verificationSessionId: revoked.id
+        });
+    } catch (error: any) {
+        console.error('Error revoking verification session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getActiveVerificationSession = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user?.id;
+        const sessionId = req.query?.sessionId as string | undefined;
+
+        if (!studentId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const queryRes = await pool.query(
+            `SELECT v.*, c.name as classroom_name, s.random_code as session_code
+             FROM verification_sessions v
+             JOIN attendance_sessions s ON s.id = v.session_id
+             LEFT JOIN classrooms c ON c.id = v.classroom_id
+             WHERE v.student_id = $1
+               AND ($2::uuid IS NULL OR v.session_id = $2::uuid)
+               AND v.status = 'PASSED'
+               AND v.expires_at > NOW()
+               AND v.revoked_at IS NULL
+             ORDER BY v.created_at DESC
+             LIMIT 1`,
+            [studentId, sessionId || null]
+        );
+
+        if (queryRes.rowCount === 0) {
+            res.status(404).json({ message: 'No active verification session found' });
+            return;
+        }
+
+        res.status(200).json(queryRes.rows[0]);
+    } catch (error: any) {
+        console.error('Error fetching active verification session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+
+

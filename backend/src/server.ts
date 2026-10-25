@@ -5,6 +5,7 @@ import authRoutes from './routes/auth';
 import sessionRoutes from './routes/session';
 import attendanceRoutes from './routes/attendance';
 import subjectRoutes from './routes/subject';
+import classroomRoutes from './routes/classroom';
 import { markExpired } from './controllers/session';
 import { initFaceService } from './services/face';
 
@@ -16,7 +17,7 @@ initFaceService().catch((err: any) => console.error('Error initializing face mod
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const defaultOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+const defaultOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://localhost:5174', 'https://localhost:5173'];
 const envOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map(o => o.trim().replace(/\/+$/, ''))
@@ -27,7 +28,7 @@ app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
         const normalized = origin.trim().replace(/\/+$/, '');
-        if (allowedOrigins.has(normalized)) {
+        if (allowedOrigins.has(normalized) || /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/.test(normalized)) {
             return callback(null, true);
         }
         return callback(new Error('Not allowed by CORS'));
@@ -39,6 +40,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/subjects', subjectRoutes);
+app.use('/api/classrooms', classroomRoutes);
 
 app.get('/health', (req: Request, res: Response) => {
     res.status(200).json({
@@ -47,14 +49,18 @@ app.get('/health', (req: Request, res: Response) => {
     });
 });
 
-// Periodic sweep every 5s to mark expired sessions
+// Periodic sweep every 30s to mark expired sessions
 setInterval(async () => {
     try {
         await markExpired();
-    } catch (error) {
-        console.error('Error in markExpired sweep:', error);
+    } catch (error: any) {
+        if (error?.code === 'ECONNREFUSED' || error?.message?.includes('ECONNREFUSED')) {
+            // Database is offline or unreachable; silently wait for reconnect
+            return;
+        }
+        console.error('Error in markExpired sweep:', error?.message || error);
     }
-}, 5000);
+}, 30000);
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
