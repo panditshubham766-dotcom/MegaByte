@@ -609,7 +609,7 @@ export default function MobileStudentCapture() {
 
         {/* STEP 3: RESULT SCREEN */}
         {flowStage === 'RESULT' && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm text-center space-y-4 animate-in fade-in duration-200">
+          <div className="clay-card p-6 text-center space-y-4 animate-in fade-in duration-200">
             {success ? (
               <>
                 <div className="w-16 h-16 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-center mx-auto text-[#16A34A]">
@@ -842,9 +842,9 @@ export default function MobileStudentCapture() {
 
           {/* Progress Bar */}
           <div className="space-y-1 pt-1">
-            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-[#E8EEFB] h-2 rounded-full overflow-hidden shadow-inner">
               <div
-                className="h-full bg-[#0F172A] rounded-full transition-all duration-300"
+                className="h-full bg-gradient-to-r from-[#5B4BF0] to-[#4F46E5] rounded-full transition-all duration-300"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -853,7 +853,7 @@ export default function MobileStudentCapture() {
 
         {/* STEP 1: CODE ENTRY */}
         {flowStage === 'CODE' && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-5 animate-in fade-in duration-200">
+          <div className="clay-card p-6 space-y-5 animate-in fade-in duration-200">
             <div className="text-center space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100 inline-block">
                 Presence Verification
@@ -891,7 +891,7 @@ export default function MobileStudentCapture() {
                       onChange={(e) => handleDigitChange(idx, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(idx, e)}
                       onPaste={handlePaste}
-                      className="w-10 h-12 sm:w-11 sm:h-13 text-center font-mono text-xl font-bold uppercase rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 shadow-xs transition-all"
+                      className="w-10 h-12 sm:w-11 sm:h-13 text-center font-mono text-xl font-black uppercase clay-tile-code"
                       aria-label={`Digit ${idx + 1}`}
                     />
                   ))}
@@ -902,7 +902,7 @@ export default function MobileStudentCapture() {
               <button
                 type="submit"
                 disabled={fullCode.length !== 6 || isSubmitting}
-                className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? (
                   <>

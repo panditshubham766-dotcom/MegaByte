@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Check, X, ArrowLeft, RefreshCw, Download, Users, MapPin, Wifi } from 'lucide-react';
+import { Check, X, ArrowLeft, RefreshCw, Download, Users, LogOut, AlertTriangle, AlertCircle, MapPin, Wifi } from 'lucide-react';
 
 interface PendingSubmission {
   record_id: string;
@@ -38,6 +38,15 @@ export default function FacultyReview() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
   const [, setTick] = useState(0);
+
+  // Approve all state
+  const [showApproveAllModal, setShowApproveAllModal] = useState(false);
+  const [targetRecordIds, setTargetRecordIds] = useState<string[]>([]);
+  const [lowMatchCount, setLowMatchCount] = useState<number>(0);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+  const [approveAllError, setApproveAllError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const cancelBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const serverOffsetRef = useRef<number>(0);
 
@@ -174,13 +183,79 @@ export default function FacultyReview() {
       });
 
       if (!response.ok) {
-        // If it fails, we fetch the list again to restore the UI state
         fetchPending();
       }
     } catch (err) {
       console.error('Error reviewing submission:', err);
       fetchPending();
     }
+  };
+
+  useEffect(() => {
+    if (showApproveAllModal) {
+      const timer = setTimeout(() => {
+        cancelBtnRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [showApproveAllModal]);
+
+  const handleOpenApproveAllModal = () => {
+    const ids = submissions.map(sub => sub.record_id);
+    const lowMatch = submissions.filter(
+      sub => sub.face_match_score !== undefined && sub.face_match_score !== null && sub.face_match_score < 0.70
+    ).length;
+    setTargetRecordIds(ids);
+    setLowMatchCount(lowMatch);
+    setApproveAllError('');
+    setShowApproveAllModal(true);
+  };
+
+  const handleConfirmApproveAll = async () => {
+    if (isApprovingAll || !currentSessionId || targetRecordIds.length === 0) return;
+    setIsApprovingAll(true);
+    setApproveAllError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/attendance/review/approve-all`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          sessionId: currentSessionId,
+          recordIds: targetRecordIds
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to approve submissions');
+      }
+
+      setShowApproveAllModal(false);
+      fetchPending();
+      const count = typeof data.approved === 'number' ? data.approved : targetRecordIds.length;
+      setSuccessMessage(`Approved ${count} students`);
+      setTimeout(() => {
+        setSuccessMessage('');
+      }, 5000);
+    } catch (err: any) {
+      console.error('Error approving all submissions:', err);
+      setApproveAllError(err.message || 'Failed to approve submissions');
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
   };
 
   const renderStatusChip = () => {
@@ -191,175 +266,321 @@ export default function FacultyReview() {
       const mins = Math.floor(remainingSec / 60);
       const secs = remainingSec % 60;
       return (
-        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-300 flex items-center">
-          <span className="w-2 h-2 rounded-full bg-green-500 mr-1.5 animate-pulse"></span>
+        <span className="clay-chip clay-chip-success">
+          <span className="w-2 h-2 rounded-full bg-[#16A34A] mr-1.5 animate-pulse" />
           ACTIVE • {mins.toString().padStart(2, '0')}:{secs.toString().padStart(2, '0')}
         </span>
       );
     }
     if (sessionInfo.status === 'EXPIRED') {
       return (
-        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300">
+        <span className="clay-chip clay-chip-warning">
           Expired
         </span>
       );
     }
     return (
-      <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-800 border border-gray-300">
+      <span className="clay-chip clay-chip-lavender">
         Ended
       </span>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate(`/session/${currentSessionId}`)}
-              className="p-2 bg-white border border-gray-300 rounded-full hover:bg-gray-50 text-gray-600"
-              title="Back to Session Code"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <h1 className="text-2xl font-bold text-gray-900">Live Review Dashboard</h1>
-            {renderStatusChip()}
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
+      {/* Floating Rounded Clay Top Bar */}
+      <header className="max-w-7xl w-full mx-auto mb-6">
+        <div className="clay-topbar px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 sm:gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full clay-tile flex items-center justify-center font-black text-base text-[#5B4BF0]">
+                M
+              </div>
+              <span className="font-extrabold text-xl text-[#1B1640] tracking-tight">MegaByte</span>
+            </div>
+
+            {/* Nav links as clay pills with active state */}
+            <nav className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/faculty/dashboard')}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                <ArrowLeft className="h-3 w-3 mr-1" />
+                Dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${currentSessionId}`)}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                Code
+              </button>
+              <span className="clay-chip clay-chip-pressed text-xs">
+                Live Review
+              </span>
+              <button
+                type="button"
+                onClick={() => navigate(`/session/${currentSessionId}/attendance`)}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                Attendance table
+              </button>
+            </nav>
           </div>
+
           <div className="flex items-center gap-3">
             <button
+              onClick={handleLogout}
+              className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full"
+            >
+              <LogOut className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto space-y-6">
+        {/* Page Actions Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 clay-card p-4 sm:p-6">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Live Review Dashboard</h1>
+              {renderStatusChip()}
+            </div>
+            <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Real-time student face match verification</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
               onClick={() => navigate(`/session/${currentSessionId}/attendance`)}
-              className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors"
+              className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs rounded-full"
               title="View and Edit Attendance Roster"
             >
-              <Users className="h-4 w-4 mr-1.5" />
+              <Users className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
               Attendance Roster
             </button>
             <button
               onClick={handleDownloadExcel}
               disabled={downloading}
-              className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs rounded-full disabled:opacity-50"
               title="Download Attendance Excel Workbook"
             >
-              <Download className="h-4 w-4 mr-2" />
+              <Download className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
               {downloading ? 'Downloading...' : 'Download Excel'}
             </button>
+            {submissions.length > 0 && (
+              <button
+                type="button"
+                onClick={handleOpenApproveAllModal}
+                className="clay-btn clay-btn-success px-4 py-2.5 text-xs rounded-full flex items-center"
+                title="Approve all currently pending submissions"
+              >
+                <Check className="h-3.5 w-3.5 mr-1.5" />
+                Approve all ({submissions.length})
+              </button>
+            )}
             {sessionInfo?.status === 'ACTIVE' ? (
-              <div className="flex items-center text-gray-500 text-sm bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin-slow" />
+              <div className="clay-chip clay-chip-success">
+                <RefreshCw className="h-3 w-3 mr-1.5 animate-spin" />
                 Live Polling Active
               </div>
             ) : (
-              <div className="flex items-center text-gray-500 text-sm bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
+              <div className="clay-chip clay-chip-lavender">
                 Session ended
               </div>
             )}
           </div>
-        </header>
+        </div>
+
+        {successMessage && (
+          <div className="clay-chip-success px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Check className="h-4 w-4 text-[#16A34A] flex-shrink-0" />
+              <span>{successMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuccessMessage('')}
+              className="p-1 rounded-full hover:bg-black/5 text-[#16A34A]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md mb-6">
+          <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full">
             {error}
           </div>
         )}
 
         {loading && submissions.length === 0 ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="flex justify-center items-center py-24 clay-card">
+            <RefreshCw className="h-8 w-8 animate-spin text-[#5B4BF0] mr-2" />
+            <span className="text-sm font-bold text-[#5B5F8A]">Loading submissions...</span>
           </div>
         ) : submissions.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
-            <div className="mx-auto w-24 h-24 mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-              <Check className="h-10 w-10 text-gray-400" />
+          <div className="clay-card p-12 text-center text-[#5B5F8A]">
+            <div className="mx-auto w-16 h-16 mb-4 rounded-full clay-tile flex items-center justify-center text-[#34D399]">
+              <Check className="h-8 w-8" />
             </div>
             {sessionInfo?.status !== 'ACTIVE' ? (
-              <h3 className="text-xl font-medium text-gray-900 mb-1">No pending submissions</h3>
+              <h3 className="text-lg font-extrabold text-[#1B1640]">No pending submissions</h3>
             ) : (
               <>
-                <h3 className="text-xl font-medium text-gray-900 mb-1">All caught up!</h3>
-                <p>Waiting for new student submissions...</p>
+                <h3 className="text-lg font-extrabold text-[#1B1640]">All caught up!</h3>
+                <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Waiting for new student submissions...</p>
               </>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {submissions.map((sub) => (
-              <div key={sub.record_id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-                <div className="aspect-[4/3] bg-gray-100 w-full relative">
-                  {sub.photo_base64 ? (
-                    <img 
-                      src={sub.photo_base64} 
-                      alt={`Photo of ${sub.name}`}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      No Photo
+              <div key={sub.record_id} className="clay-card p-4 overflow-hidden flex flex-col justify-between">
+                <div>
+                  <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-slate-100 relative mb-3 shadow-inner border border-white/60">
+                    {sub.photo_base64 ? (
+                      <img 
+                        src={sub.photo_base64} 
+                        alt={`Photo of ${sub.name}`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs font-bold text-slate-400">
+                        No Photo
+                      </div>
+                    )}
+                    {sub.face_match_score !== undefined && sub.face_match_score !== null && (
+                      <div className="absolute top-2.5 right-2.5 clay-chip clay-chip-pressed text-[10px]">
+                        <span>Match {Math.round(sub.face_match_score * 100)}%</span>
+                        {sub.liveness_score !== undefined && sub.liveness_score !== null && (
+                          <span className="text-emerald-300 ml-1">• Live {Math.round(sub.liveness_score * 100)}%</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="font-extrabold text-sm text-[#1B1640] truncate">{sub.name}</h3>
+                        <p className="text-xs font-mono font-semibold text-[#5B5F8A] truncate mt-0.5">{sub.student_id || 'No ID'}</p>
+                      </div>
+                        {sub.location_verified && (
+                          <span className="clay-chip clay-chip-lavender text-[10px] flex items-center gap-1">
+                            <MapPin className="h-2.5 w-2.5 text-indigo-600" />
+                            <span>{sub.location_distance_m !== null && sub.location_distance_m !== undefined ? `${Math.round(sub.location_distance_m)}m` : 'In Room'}</span>
+                          </span>
+                        )}
+                        {sub.wifi_verified && (
+                          <span className="clay-chip clay-chip-success text-[10px] flex items-center gap-1">
+                            <Wifi className="h-2.5 w-2.5 text-emerald-600" />
+                            <span>Wi-Fi AP</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  {sub.face_match_score !== undefined && sub.face_match_score !== null && (
-                    <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-sm text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow flex items-center gap-1.5">
-                      <span>Match {Math.round(sub.face_match_score * 100)}%</span>
-                      {sub.liveness_score !== undefined && sub.liveness_score !== null && (
-                        <span className="text-green-300">• Live {Math.round(sub.liveness_score * 100)}%</span>
-                      )}
-                    </div>
-                  )}
+                  </div>
                 </div>
-                <div className="p-4 flex-grow flex flex-col">
-                  <div className="flex items-start justify-between gap-2 mb-4">
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-lg text-gray-900 truncate">{sub.name}</h3>
-                      <p className="text-sm text-gray-500 truncate">{sub.student_id || 'No ID Provided'}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      {sub.face_match_score !== undefined && sub.face_match_score !== null && (
-                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
-                          Match {Math.round(sub.face_match_score * 100)}%
-                        </span>
-                      )}
-                      {sub.liveness_score !== undefined && sub.liveness_score !== null && (
-                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-green-50 text-green-700 border border-green-200 whitespace-nowrap">
-                          Live {Math.round(sub.liveness_score * 100)}%
-                        </span>
-                      )}
-                      {sub.location_verified && (
-                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          <span>{sub.location_distance_m !== null && sub.location_distance_m !== undefined ? `${Math.round(sub.location_distance_m)}m` : 'In Room'}</span>
-                        </span>
-                      )}
-                      {sub.wifi_verified && (
-                        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap flex items-center gap-1">
-                          <Wifi className="h-3 w-3" />
-                          <span>Wi-Fi AP</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-2 mt-auto">
-                    <button
-                      onClick={() => handleReview(sub.record_id, 'REJECTED')}
-                      className="flex items-center justify-center py-2 px-3 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors font-medium text-sm"
-                    >
-                      <X className="h-4 w-4 mr-1" />
-                      Reject
-                    </button>
-                    <button
-                      onClick={() => handleReview(sub.record_id, 'APPROVED')}
-                      className="flex items-center justify-center py-2 px-3 border border-transparent text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors font-medium text-sm shadow-sm"
-                    >
-                      <Check className="h-4 w-4 mr-1" />
-                      Approve
-                    </button>
-                  </div>
+                
+                <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-200/60">
+                  <button
+                    type="button"
+                    onClick={() => handleReview(sub.record_id, 'REJECTED')}
+                    className="clay-btn clay-btn-danger-quiet py-2.5 px-3 text-xs rounded-full"
+                  >
+                    <X className="h-3.5 w-3.5 mr-1" />
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleReview(sub.record_id, 'APPROVED')}
+                    className="clay-btn clay-btn-success py-2.5 px-3 text-xs rounded-full"
+                  >
+                    <Check className="h-3.5 w-3.5 mr-1" />
+                    Approve
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </main>
+
+      {/* Approve All Confirmation Modal */}
+      {showApproveAllModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full overflow-hidden text-left">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200/60">
+              <div className="flex items-center gap-2 text-[#16A34A]">
+                <Check className="h-5 w-5" />
+                <h3 className="text-base font-extrabold text-[#1B1640]">Approve all submissions?</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isApprovingAll && setShowApproveAllModal(false)}
+                disabled={isApprovingAll}
+                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 disabled:opacity-50 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm font-semibold text-[#5B5F8A]">
+                This will mark {targetRecordIds.length} students as present. You can still edit any of them later.
+              </p>
+
+              {lowMatchCount > 0 && (
+                <div className="clay-chip-warning px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-600" />
+                  <span>
+                    {lowMatchCount} of them have a match below 70%. Review those first if unsure.
+                  </span>
+                </div>
+              )}
+
+              {approveAllError && (
+                <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>{approveAllError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200/60">
+              <button
+                ref={cancelBtnRef}
+                autoFocus
+                type="button"
+                onClick={() => setShowApproveAllModal(false)}
+                disabled={isApprovingAll}
+                className="px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmApproveAll}
+                disabled={isApprovingAll}
+                className="px-4 py-2.5 clay-btn clay-btn-success text-xs rounded-full disabled:opacity-50 flex items-center gap-2"
+              >
+                {isApprovingAll ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Approving...</span>
+                  </>
+                ) : (
+                  `Yes, approve ${targetRecordIds.length}`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

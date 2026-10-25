@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const [email, setEmail] = useState((location.state as any)?.email || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -32,13 +33,18 @@ export default function Login() {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, device_uuid }),
+        body: JSON.stringify({ email, password, portal: 'student', device_uuid }),
       });
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error('Server unreachable, please try again');
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
+        throw new Error(data?.message || 'Login failed');
       }
 
       localStorage.setItem('token', data.token);
@@ -57,47 +63,47 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center items-center px-4 py-8 safe-pt safe-pb">
+    <div className="min-h-screen bg-transparent flex flex-col justify-center items-center px-4 py-8 safe-pt safe-pb">
       <div className="w-full max-w-[360px] mx-auto space-y-6">
         {/* Brand Logo & Heading */}
         <div className="text-center flex flex-col items-center">
-          <div className="w-14 h-14 bg-[#0F172A] text-white font-black text-2xl rounded-2xl flex items-center justify-center shadow-sm select-none">
+          <div className="w-14 h-14 rounded-2xl clay-tile text-[#5B4BF0] font-black text-2xl flex items-center justify-center select-none mb-1">
             M
           </div>
-          <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A] mt-3">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#1B1640] mt-2">
             MegaByte
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Sign in to your account
+          <p className="text-xs font-semibold text-[#5B6190] mt-1">
+            Student Portal • Sign in
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-[0_4px_20px_-4px_rgba(15,23,42,0.05)]">
+        <div className="clay-card p-6">
           <form className="space-y-5" onSubmit={handleLogin}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-3.5 py-3 rounded-xl text-xs font-medium flex items-start gap-2 shadow-xs">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-red-500" />
+              <div className="clay-chip-danger px-3.5 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Email address
               </label>
               <input
                 type="email"
                 required
-                placeholder="student@university.edu"
-                className="w-full h-12 px-3.5 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                placeholder="23bcs001@iiitdwd.ac.in"
+                className="w-full h-12 px-3.5 clay-input text-sm"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+              <label className="label-clay block mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -105,7 +111,7 @@ export default function Login() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••"
-                  className="w-full h-12 pl-3.5 pr-11 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-slate-900/10 placeholder-slate-400 transition-all"
+                  className="w-full h-12 pl-3.5 pr-11 clay-input text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -120,16 +126,34 @@ export default function Login() {
               </div>
             </div>
 
+            <div className="flex items-center justify-end">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-bold text-[#5B4BF0] hover:opacity-80 transition-opacity"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
             <div className="pt-1">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full h-12 min-h-[44px] flex items-center justify-center bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.99] text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-12 min-h-[44px] clay-btn clay-btn-primary text-sm font-extrabold rounded-full"
               >
                 {loading ? 'Signing in...' : 'Sign in'}
               </button>
             </div>
           </form>
+
+          <div className="mt-5 text-center border-t border-slate-200/60 pt-4">
+            <Link
+              to="/signup"
+              className="text-xs font-bold text-[#5B6190] hover:text-[#1B1640] transition-colors"
+            >
+              Do not have an account? <span className="text-[#5B4BF0] font-extrabold">Sign up</span>
+            </Link>
+          </div>
         </div>
       </div>
     </div>

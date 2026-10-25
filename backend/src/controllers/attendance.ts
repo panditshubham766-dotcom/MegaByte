@@ -841,7 +841,7 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
 
         // 1. Fetch all subjects student is enrolled in
         const subjectsRes = await pool.query(
-            `SELECT DISTINCT s.id AS subject_id, s.name AS subject_name, s.code AS subject_code
+            `SELECT DISTINCT s.id AS subject_id, s.name AS subject_name, s.code AS subject_code, e.created_at AS enrolled_at
              FROM enrollments e
              JOIN subjects s ON e.subject_id = s.id
              WHERE e.student_id = $1
@@ -856,9 +856,9 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
             const sessionsRes = await pool.query(
                 `SELECT id, created_at, status
                  FROM attendance_sessions
-                 WHERE subject_id = $1 AND status != 'ACTIVE'
+                 WHERE subject_id = $1 AND status != 'ACTIVE' AND created_at >= $2
                  ORDER BY created_at DESC`,
-                [sub.subject_id]
+                [sub.subject_id, sub.enrolled_at]
             );
 
             const sessions = sessionsRes.rows;
@@ -933,6 +933,151 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
         res.status(200).json(result);
     } catch (error) {
         console.error('Error fetching student attendance summary:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+
+
+const approveAllBuckets = new Map<string, number[]>();
+
+function checkRateLimitApproveAll(key: string, maxRequests: number, windowMs: number): boolean {
+    const now = Date.now();
+    const timestamps = (approveAllBuckets.get(key) || []).filter(ts => now - ts < windowMs);
+    if (timestamps.length >= maxRequests) {
+        approveAllBuckets.set(key, timestamps);
+        return false;
+    }
+    timestamps.push(now);
+    approveAllBuckets.set(key, timestamps);
+    return true;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(val: any): boolean {
+    return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
+export const approveAllSubmissions = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const facultyId = req.user?.id;
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        // Rate limit: 10 per minute per user
+        if (!checkRateLimitApproveAll(`approve_all:${facultyId}`, 10, 60 * 1000)) {
+            res.status(429).json({ message: 'Too many requests. Please try again later.' });
+            return;
+        }
+
+        const { sessionId, recordIds } = req.body;
+
+        // Validate sessionId is a UUID
+        if (!sessionId || !isValidUUID(sessionId)) {
+            res.status(400).json({ message: 'sessionId must be a valid UUID' });
+            return;
+        }
+
+        // Validate recordIds length 1-500 and every id a UUID
+        if (!Array.isArray(recordIds) || recordIds.length < 1 || recordIds.length > 500) {
+            res.status(400).json({ message: 'recordIds must be an array of 1 to 500 items' });
+            return;
+        }
+
+        for (const id of recordIds) {
+            if (!isValidUUID(id)) {
+                res.status(400).json({ message: 'Every recordId must be a valid UUID' });
+                return;
+            }
+        }
+
+        // De-duplicate recordIds
+        const uniqueRecordIds = Array.from(new Set(recordIds));
+        if (uniqueRecordIds.length < 1 || uniqueRecordIds.length > 500) {
+            res.status(400).json({ message: 'recordIds must contain 1 to 500 unique IDs' });
+            return;
+        }
+
+        await markExpired();
+
+        // Check session ownership (unknown session 404; session must be owned by caller, else 403)
+        const sessionRes = await pool.query(
+            `SELECT id, faculty_id, subject_id FROM attendance_sessions WHERE id = $1`,
+            [sessionId]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'Session not found' });
+            return;
+        }
+
+        const session = sessionRes.rows[0];
+        if (session.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this session' });
+            return;
+        }
+
+        // In ONE transaction run UPDATE and INSERT audit_logs
+        const client = await pool.connect();
+        let approvedCount = 0;
+        let approvedIds: string[] = [];
+
+        try {
+            await client.query('BEGIN');
+
+            const updateRes = await client.query(
+                `UPDATE attendance_records SET status='APPROVED', reviewed_at=NOW() WHERE session_id=$1 AND id = ANY($2::uuid[]) AND status='PENDING' RETURNING id`,
+                [sessionId, uniqueRecordIds]
+            );
+
+            approvedIds = updateRes.rows.map(r => r.id);
+            approvedCount = approvedIds.length;
+
+            await client.query(
+                `INSERT INTO audit_logs (user_id, attendance_id, action, old_value, new_value, timestamp)
+                 VALUES ($1, NULL, 'APPROVE_ALL', NULL, $2, NOW())`,
+                [
+                    facultyId,
+                    JSON.stringify({
+                        actor: 'FACULTY',
+                        session_id: sessionId,
+                        approved_ids: approvedIds,
+                        count: approvedCount
+                    })
+                ]
+            );
+
+            await client.query('COMMIT');
+        } catch (txError) {
+            await client.query('ROLLBACK');
+            throw txError;
+        } finally {
+            client.release();
+        }
+
+        // After commit, call exactly the same post-review side effects
+        try {
+            await writeSessionExport(sessionId);
+        } catch (err) {
+            console.error('Export error on approve-all decision:', err);
+        }
+        try {
+            if (session.subject_id) {
+                await updateSubjectSheet(session.subject_id);
+            }
+        } catch (err) {
+            console.error('Subject sheet update error on approve-all decision:', err);
+        }
+
+        const skippedCount = uniqueRecordIds.length - approvedCount;
+        res.status(200).json({
+            approved: approvedCount,
+            skipped: skippedCount
+        });
+    } catch (error) {
+        console.error('Error approving all submissions:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };

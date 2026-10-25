@@ -4,6 +4,7 @@ import {
     submitAttendance,
     getPendingSubmissions,
     reviewSubmission,
+    approveAllSubmissions,
     editAttendance,
     getMyAttendance,
     getVerificationSession,
@@ -30,6 +31,7 @@ router.post('/verification/:idOrToken/revoke', verifyToken, requireRole('FACULTY
 // Faculty attendance management
 router.get('/session/:sessionId/pending', verifyToken, requireRole('FACULTY'), getPendingSubmissions);
 router.post('/review', verifyToken, requireRole('FACULTY'), reviewSubmission);
+router.post('/review/approve-all', verifyToken, requireRole('FACULTY'), approveAllSubmissions);
 router.post('/edit', verifyToken, requireRole('FACULTY'), editAttendance);
 
 // Student personal records

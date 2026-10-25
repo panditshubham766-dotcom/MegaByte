@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, X, AlertCircle, Trash2, Upload, Download, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, RefreshCw, X, AlertCircle, Trash2, Upload, Download, FileSpreadsheet, LogOut } from 'lucide-react';
 
 interface SessionCol {
   id: string;
@@ -275,7 +275,6 @@ export default function FacultySubjectHistory() {
       edit_reason: null
     };
 
-    // If current status is APPROVED, default next status to REJECTED; otherwise APPROVED
     const defaultTarget = record.status === 'APPROVED' ? 'REJECTED' : 'APPROVED';
 
     setEditingCell({
@@ -334,7 +333,6 @@ export default function FacultySubjectHistory() {
         throw new Error(resJson.message || 'Failed to update attendance');
       }
 
-      // Update that cell and the row's totals in-place without a full reload
       const { sessionId, student } = editingCell;
       const targetStudentId = student.student_id;
 
@@ -353,7 +351,6 @@ export default function FacultySubjectHistory() {
             }
           };
 
-          // Recompute present count and percentage
           let presentCount = 0;
           for (const sess of prev.sessions) {
             if (updatedRecords[sess.id]?.status === 'APPROVED') {
@@ -387,6 +384,12 @@ export default function FacultySubjectHistory() {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
   const formatSessionDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
@@ -402,25 +405,25 @@ export default function FacultySubjectHistory() {
     const status = rec?.status;
     const isEdited = rec?.edited;
 
-    let badgeClass = 'bg-gray-100 text-gray-700 border-gray-300';
+    let chipClass = 'clay-chip clay-chip-neutral';
     let text = 'Absent';
 
     if (status === 'APPROVED') {
-      badgeClass = 'bg-green-100 text-green-800 border-green-300';
+      chipClass = 'clay-chip clay-chip-success';
       text = 'Present';
     } else if (status === 'REJECTED') {
-      badgeClass = 'bg-red-100 text-red-800 border-red-300';
+      chipClass = 'clay-chip clay-chip-danger';
       text = 'Rejected';
     } else if (status === 'PENDING') {
-      badgeClass = 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      chipClass = 'clay-chip clay-chip-warning';
       text = 'Pending';
     }
 
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${badgeClass}`}>
+      <span className={`text-[11px] font-extrabold ${chipClass}`}>
         {isEdited && (
           <span
-            className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1 flex-shrink-0 animate-pulse"
+            className="w-1.5 h-1.5 rounded-full bg-[#D97706] mr-1 flex-shrink-0 animate-pulse"
             title={rec?.edit_reason ? `Edited: ${rec.edit_reason}` : 'Edited by faculty'}
           />
         )}
@@ -430,28 +433,61 @@ export default function FacultySubjectHistory() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
+      {/* Floating Rounded Clay Top Bar */}
+      <header className="max-w-7xl w-full mx-auto mb-6">
+        <div className="clay-topbar px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 sm:gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full clay-tile flex items-center justify-center font-black text-base text-[#5B4BF0]">
+                M
+              </div>
+              <span className="font-extrabold text-xl text-[#1B1640] tracking-tight">MegaByte</span>
+            </div>
+
+            {/* Nav links as clay pills with active state */}
+            <nav className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/faculty/dashboard')}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+              >
+                <ArrowLeft className="h-3 w-3 mr-1" />
+                Dashboard
+              </button>
+              <span className="clay-chip clay-chip-pressed text-xs">
+                Subject history
+              </span>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate('/faculty/dashboard')}
-              className="p-2 bg-white border border-gray-300 rounded-full hover:bg-gray-50 text-gray-600"
-              title="Back to Dashboard"
+              onClick={handleLogout}
+              className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <LogOut className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
+              Logout
             </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto space-y-6">
+        {/* Header card with subject details and action buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-4 clay-card p-4 sm:p-6">
+          <div className="flex items-center space-x-3">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                <span className="clay-chip clay-chip-pressed text-[10px]">
                   {data?.subject.code || '...'}
                 </span>
-                <h1 className="text-2xl font-bold text-gray-900">
+                <h1 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">
                   {data?.subject.name || 'Subject History'}
                 </h1>
               </div>
-              <p className="text-sm text-gray-500 mt-0.5">
+              <p className="text-xs font-semibold text-[#5B5F8A] mt-1">
                 Full session attendance grid & overrides
               </p>
             </div>
@@ -467,13 +503,11 @@ export default function FacultySubjectHistory() {
             />
             <label
               htmlFor="master-sheet-input"
-              className={`inline-flex items-center px-3.5 py-2 rounded-lg text-sm font-semibold shadow-sm cursor-pointer transition-colors ${
-                isUploadingSheet
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              className={`clay-btn clay-btn-success px-4 py-2 text-xs rounded-full cursor-pointer ${
+                isUploadingSheet ? 'opacity-50 cursor-not-allowed' : ''
               }`}
             >
-              <Upload className={`h-4 w-4 mr-1.5 ${isUploadingSheet ? 'animate-bounce' : ''}`} />
+              <Upload className={`h-3.5 w-3.5 mr-1.5 ${isUploadingSheet ? 'animate-bounce' : ''}`} />
               {isUploadingSheet
                 ? 'Uploading...'
                 : data?.subject.master_sheet_path
@@ -486,9 +520,9 @@ export default function FacultySubjectHistory() {
                 type="button"
                 onClick={handleDownloadExcel}
                 disabled={isDownloadingSheet}
-                className="inline-flex items-center px-3.5 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-semibold rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full disabled:opacity-50"
               >
-                <Download className={`h-4 w-4 mr-1.5 ${isDownloadingSheet ? 'animate-spin' : ''}`} />
+                <Download className={`h-3.5 w-3.5 mr-1.5 text-[#5B5F8A] ${isDownloadingSheet ? 'animate-spin' : ''}`} />
                 {isDownloadingSheet ? 'Downloading...' : 'Download Excel'}
               </button>
             )}
@@ -496,80 +530,80 @@ export default function FacultySubjectHistory() {
             <button
               onClick={fetchHistory}
               disabled={loading}
-              className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+              className="clay-btn clay-btn-secondary p-2.5 rounded-full disabled:opacity-50"
               title="Refresh"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 text-[#5B5F8A] ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={() => navigate('/faculty/dashboard')}
-              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-semibold rounded-lg shadow-sm transition-colors"
+              className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full"
             >
               Dashboard
             </button>
           </div>
-        </header>
+        </div>
 
         {/* Master Excel Banner */}
-        <div className="flex flex-wrap items-center justify-between bg-white px-4 py-3 rounded-xl border border-gray-200 shadow-sm text-sm gap-2">
-          <div className="flex items-center gap-2 text-gray-700">
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-            <span className="font-semibold text-gray-900">Master Sheet:</span>
+        <div className="flex flex-wrap items-center justify-between clay-card px-5 py-3.5 text-xs gap-2">
+          <div className="flex items-center gap-2 text-[#1B1640]">
+            <FileSpreadsheet className="h-4 w-4 text-[#34D399] flex-shrink-0" />
+            <span className="font-extrabold">Master Sheet:</span>
             {data?.subject.master_sheet_path ? (
-              <span className="text-gray-600">
+              <span className="font-semibold text-[#5B5F8A]">
                 Last updated {data.subject.master_sheet_updated_at ? new Date(data.subject.master_sheet_updated_at).toLocaleString() : 'recently'}
               </span>
             ) : (
-              <span className="text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 text-xs font-semibold">
+              <span className="clay-chip clay-chip-warning text-[10px]">
                 Upload a blank .xlsx to start the sheet
               </span>
             )}
           </div>
           {sheetMessage && (
-            <span className="text-xs text-emerald-600 font-semibold">{sheetMessage}</span>
+            <span className="text-xs text-[#065F46] font-extrabold">{sheetMessage}</span>
           )}
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm flex items-start gap-2 shadow-sm">
-            <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+          <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
-        {/* Matrix Table */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Matrix Table inside one clay-card container, rows and cells FLAT */}
+        <div className="clay-card p-4 sm:p-6 overflow-hidden">
           {loading && !data ? (
-            <div className="flex justify-center items-center py-24 text-gray-500">
-              <RefreshCw className="h-8 w-8 animate-spin text-blue-600 mr-3" />
-              <span className="text-base font-medium">Loading subject history...</span>
+            <div className="flex justify-center items-center py-24 text-[#5B5F8A]">
+              <RefreshCw className="h-6 w-6 animate-spin text-[#5B4BF0] mr-3" />
+              <span className="text-sm font-bold">Loading subject history...</span>
             </div>
           ) : !data || data.students.length === 0 ? (
-            <div className="p-12 text-center text-gray-500">
-              <p className="text-base font-semibold text-gray-700">No students enrolled</p>
-              <p className="text-sm text-gray-500 mt-1">There are no students enrolled in this subject.</p>
+            <div className="p-12 text-center text-[#5B5F8A]">
+              <p className="text-base font-extrabold text-[#1B1640]">No students enrolled</p>
+              <p className="text-xs font-semibold text-[#5B5F8A] mt-1">There are no students enrolled in this subject.</p>
             </div>
           ) : (
             <div className="overflow-x-auto max-h-[75vh]">
               <table className="min-w-full border-separate border-spacing-0">
-                <thead className="bg-gray-50 sticky top-0 z-30">
+                <thead className="sticky top-0 z-30 bg-[#F4F6FD]">
                   <tr>
                     {/* Sticky Student Column Header */}
                     <th
                       scope="col"
-                      className="sticky left-0 bg-gray-50 z-40 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-r border-gray-200 min-w-[180px] shadow-[2px_0_4px_-1px_rgba(0,0,0,0.05)]"
+                      className="sticky left-0 bg-[#F4F6FD] z-40 px-4 py-3 text-left label-clay border-b border-r border-slate-200/80 min-w-[180px] shadow-[2px_0_4px_-1px_rgba(0,0,0,0.05)]"
                     >
                       Student
                     </th>
 
                     {/* Summary Columns */}
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 min-w-[70px]">
+                    <th scope="col" className="px-3 py-3 text-center label-clay border-b border-slate-200/80 min-w-[70px]">
                       Present
                     </th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 min-w-[60px]">
+                    <th scope="col" className="px-3 py-3 text-center label-clay border-b border-slate-200/80 min-w-[60px]">
                       Total
                     </th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-r border-gray-200 min-w-[65px]">
+                    <th scope="col" className="px-3 py-3 text-center label-clay border-b border-r border-slate-200/80 min-w-[65px]">
                       %
                     </th>
 
@@ -580,54 +614,55 @@ export default function FacultySubjectHistory() {
                         <th
                           key={sess.id}
                           scope="col"
-                          className="px-3 py-2 text-center text-xs font-semibold text-gray-700 border-b border-r border-gray-200 min-w-[120px]"
+                          className="px-3 py-2 text-center text-xs font-extrabold text-[#1B1640] border-b border-r border-slate-200/80 min-w-[120px]"
                         >
                           <div className="flex items-center justify-between gap-1 mb-1">
-                            <span className="font-bold text-gray-900">{datePart}</span>
+                            <span className="font-extrabold text-[#1B1640] text-xs">{datePart}</span>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openDeleteModal(sess);
                               }}
-                              className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                              className="p-1 text-slate-400 hover:text-[#F43F5E] hover:bg-rose-50 rounded-lg transition-colors"
                               title="Delete session"
                               aria-label={`Delete session ${datePart}`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
-                          <div className="text-[11px] text-gray-500 font-mono text-left">{timePart}</div>
+                          <div className="text-[11px] text-[#5B5F8A] font-mono font-semibold text-left">{timePart}</div>
                         </th>
                       );
                     })}
                   </tr>
                 </thead>
 
-                <tbody className="bg-white divide-y divide-gray-100">
+                {/* Rows and cells FLAT (no per-cell shadows) */}
+                <tbody className="divide-y divide-slate-200/50 bg-white/40">
                   {data.students.map((student) => (
-                    <tr key={student.student_id} className="hover:bg-blue-50/20 transition-colors">
+                    <tr key={student.student_id} className="hover:bg-white/80 transition-colors">
                       {/* Sticky Student Column */}
-                      <td className="sticky left-0 bg-white z-20 px-4 py-3 text-sm border-r border-gray-200 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.05)]">
-                        <div className="font-bold text-gray-900">{student.name}</div>
-                        <div className="text-xs text-gray-500 font-mono">{student.student_id}</div>
+                      <td className="sticky left-0 bg-[#FBFBFF] z-20 px-4 py-3 text-xs border-r border-slate-200/80 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.05)]">
+                        <div className="font-extrabold text-[#1B1640]">{student.name}</div>
+                        <div className="text-[11px] font-mono font-bold text-[#5B5F8A] mt-0.5">{student.student_id}</div>
                       </td>
 
                       {/* Summary Values */}
-                      <td className="px-3 py-3 text-center text-sm font-semibold text-green-700 font-mono">
+                      <td className="px-3 py-3 text-center text-xs font-extrabold text-[#065F46] font-mono">
                         {student.present}
                       </td>
-                      <td className="px-3 py-3 text-center text-sm text-gray-600 font-mono">
+                      <td className="px-3 py-3 text-center text-xs font-bold text-[#5B5F8A] font-mono">
                         {student.total}
                       </td>
-                      <td className="px-3 py-3 text-center text-sm border-r border-gray-200">
+                      <td className="px-3 py-3 text-center text-xs border-r border-slate-200/80">
                         <span
-                          className={`inline-block font-extrabold text-xs px-2 py-0.5 rounded-full ${
+                          className={`inline-block font-black text-[11px] px-2.5 py-0.5 rounded-full ${
                             student.percentage >= 75
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-emerald-100 text-[#065F46]'
                               : student.percentage >= 50
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
+                              ? 'bg-amber-100 text-[#92400E]'
+                              : 'bg-rose-100 text-[#9F1239]'
                           }`}
                         >
                           {student.percentage}%
@@ -641,7 +676,7 @@ export default function FacultySubjectHistory() {
                           <td
                             key={sess.id}
                             onClick={() => openEditModal(student, sess.id, sess.started_at)}
-                            className="px-3 py-2 text-center text-xs border-r border-gray-100 cursor-pointer hover:bg-blue-100/40 transition-colors"
+                            className="px-3 py-2 text-center text-xs border-r border-slate-200/50 cursor-pointer hover:bg-blue-50/50 transition-colors"
                             title="Click to edit status"
                           >
                             {renderCellChip(rec)}
@@ -658,13 +693,13 @@ export default function FacultySubjectHistory() {
 
         {/* Edit Modal */}
         {editingCell && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                <h3 className="text-lg font-bold text-gray-900">Edit Attendance Record</h3>
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="clay-card max-w-md w-full overflow-hidden">
+              <div className="flex items-center justify-between p-6 border-b border-slate-200/60">
+                <h3 className="text-base font-extrabold text-[#1B1640]">Edit Attendance Record</h3>
                 <button
                   onClick={closeEditModal}
-                  className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -672,48 +707,48 @@ export default function FacultySubjectHistory() {
 
               <div className="p-6 space-y-4">
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-400 font-bold">Student</p>
-                  <p className="font-semibold text-gray-900 text-base">
+                  <p className="label-clay block">Student</p>
+                  <p className="font-extrabold text-[#1B1640] text-sm mt-0.5">
                     {editingCell.student.name} ({editingCell.student.student_id})
                   </p>
                 </div>
 
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-400 font-bold">Session Date & Time</p>
-                  <p className="font-medium text-gray-800 text-sm">
+                  <p className="label-clay block">Session Date & Time</p>
+                  <p className="font-bold text-[#1B1640] text-xs mt-0.5">
                     {new Date(editingCell.sessionDate).toLocaleString()}
                   </p>
                 </div>
 
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-400 font-bold mb-1">Current Status</p>
+                  <p className="label-clay block mb-1.5">Current Status</p>
                   {renderCellChip(editingCell.currentRecord)}
                   {editingCell.currentRecord.edited && editingCell.currentRecord.edit_reason && (
-                    <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 mt-2">
-                      <span className="font-semibold">Current reason:</span> {editingCell.currentRecord.edit_reason}
+                    <p className="text-xs text-[#92400E] bg-amber-50 p-2.5 rounded-2xl border border-amber-200 mt-2">
+                      <span className="font-bold">Current reason:</span> {editingCell.currentRecord.edit_reason}
                     </p>
                   )}
                 </div>
 
                 {modalError && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                  <div className="clay-chip-danger px-3 py-2 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
                     <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                     <span>{modalError}</span>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="label-clay block mb-2">
                     New Status
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => setTargetStatus('APPROVED')}
-                      className={`py-2.5 px-3 rounded-lg border text-sm font-semibold flex items-center justify-center transition-all ${
+                      className={`py-2.5 px-3 rounded-full text-xs font-extrabold flex items-center justify-center transition-all ${
                         targetStatus === 'APPROVED'
-                          ? 'border-green-500 bg-green-50 text-green-700 ring-2 ring-green-500/20'
-                          : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                          ? 'clay-chip-pressed'
+                          : 'clay-chip clay-chip-selectable clay-chip-neutral'
                       }`}
                     >
                       Present (APPROVED)
@@ -721,10 +756,10 @@ export default function FacultySubjectHistory() {
                     <button
                       type="button"
                       onClick={() => setTargetStatus('REJECTED')}
-                      className={`py-2.5 px-3 rounded-lg border text-sm font-semibold flex items-center justify-center transition-all ${
+                      className={`py-2.5 px-3 rounded-full text-xs font-extrabold flex items-center justify-center transition-all ${
                         targetStatus === 'REJECTED'
-                          ? 'border-red-500 bg-red-50 text-red-700 ring-2 ring-red-500/20'
-                          : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                          ? 'clay-chip-pressed'
+                          : 'clay-chip clay-chip-selectable clay-chip-neutral'
                       }`}
                     >
                       Not present (REJECTED)
@@ -733,26 +768,26 @@ export default function FacultySubjectHistory() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason for edit <span className="text-red-500">*</span>
+                  <label className="label-clay block mb-1.5">
+                    Reason for edit <span className="text-[#F43F5E]">*</span>
                   </label>
                   <textarea
                     rows={3}
                     placeholder="Enter reason (min 5 characters, e.g. Excused absence approved)"
                     value={editReason}
                     onChange={(e) => setEditReason(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    className="w-full px-4 py-3 clay-input text-xs"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Minimum 5 characters required.</p>
+                  <p className="text-[11px] font-semibold text-[#5B5F8A] mt-1">Minimum 5 characters required.</p>
                 </div>
               </div>
 
-              <div className="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={closeEditModal}
                   disabled={isSubmitting}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  className="px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -760,7 +795,7 @@ export default function FacultySubjectHistory() {
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={isSubmitting || editReason.trim().length < 5}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2.5 clay-btn clay-btn-primary text-xs rounded-full disabled:opacity-50"
                 >
                   {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -771,17 +806,17 @@ export default function FacultySubjectHistory() {
 
         {/* Delete Confirmation Modal */}
         {deletingSession && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                <div className="flex items-center gap-2 text-red-600">
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="clay-card max-w-md w-full overflow-hidden">
+              <div className="flex items-center justify-between p-6 border-b border-slate-200/60">
+                <div className="flex items-center gap-2 text-[#F43F5E]">
                   <Trash2 className="h-5 w-5" />
-                  <h3 className="text-lg font-bold text-gray-900">Delete Session</h3>
+                  <h3 className="text-base font-extrabold text-[#1B1640]">Delete Session</h3>
                 </div>
                 <button
                   onClick={closeDeleteModal}
                   disabled={isDeleting}
-                  className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                  className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 disabled:opacity-50 transition-colors"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -789,30 +824,30 @@ export default function FacultySubjectHistory() {
 
               <div className="p-6 space-y-4">
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-400 font-bold">Session Date</p>
-                  <p className="font-semibold text-gray-900 text-base mt-0.5">
+                  <p className="label-clay block">Session Date</p>
+                  <p className="font-bold text-[#1B1640] text-sm mt-0.5">
                     {new Date(deletingSession.started_at).toLocaleString()}
                   </p>
                 </div>
 
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium">
+                <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full">
                   This permanently deletes {deletingSession.recordCount} attendance records and cannot be undone
                 </div>
 
                 {deleteError && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                  <div className="clay-chip-danger px-4 py-3 rounded-2xl text-xs font-bold w-full flex items-start gap-2">
                     <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                     <span>{deleteError}</span>
                   </div>
                 )}
               </div>
 
-              <div className="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={closeDeleteModal}
                   disabled={isDeleting}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  className="px-4 py-2.5 clay-btn clay-btn-secondary text-xs rounded-full disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -820,11 +855,11 @@ export default function FacultySubjectHistory() {
                   type="button"
                   onClick={handleConfirmDelete}
                   disabled={isDeleting}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2"
+                  className="px-4 py-2.5 clay-btn clay-btn-danger text-xs rounded-full disabled:opacity-50 flex items-center gap-2"
                 >
                   {isDeleting ? (
                     <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                       <span>Deleting...</span>
                     </>
                   ) : (
@@ -835,7 +870,7 @@ export default function FacultySubjectHistory() {
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

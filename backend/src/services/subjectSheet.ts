@@ -95,7 +95,7 @@ async function performUpdateSubjectSheet(subjectId: string): Promise<void> {
 
     // Query all students enrolled in the subject, sorted by student_id
     const studentsRes = await pool.query(
-        `SELECT u.id AS user_id, u.student_id, u.name 
+        `SELECT u.id AS user_id, u.student_id, u.name, e.created_at AS enrolled_at 
          FROM enrollments e 
          JOIN users u ON e.student_id = u.id 
          WHERE e.subject_id = $1 
@@ -134,9 +134,16 @@ async function performUpdateSubjectSheet(subjectId: string): Promise<void> {
     // Populate rows
     for (const student of students) {
         let presentCount = 0;
+        let studentTotal = 0;
         const cells: string[] = [];
 
         for (const session of sessions) {
+            if (student.enrolled_at && new Date(session.created_at).getTime() < new Date(student.enrolled_at).getTime()) {
+                cells.push('-');
+                continue;
+            }
+
+            studentTotal++;
             const status = recordsMap.get(`${student.user_id}:${session.id}`);
             let text = 'A';
             if (status === 'APPROVED') {
@@ -152,15 +159,14 @@ async function performUpdateSubjectSheet(subjectId: string): Promise<void> {
             cells.push(text);
         }
 
-        const total = sessions.length;
-        const percentage = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+        const percentage = studentTotal > 0 ? Math.round((presentCount / studentTotal) * 100) : 0;
 
         const rowValues = [
             student.student_id || student.user_id,
             student.name,
             ...cells,
             presentCount,
-            total,
+            studentTotal,
             `${percentage}%`
         ];
 

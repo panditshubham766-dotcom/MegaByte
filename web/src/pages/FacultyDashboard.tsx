@@ -258,7 +258,6 @@ export default function FacultyDashboard() {
         throw new Error(data.message || 'Failed to create session');
       }
 
-      // Navigate to code presentation view with session id
       navigate(`/session/${data.id}`);
     } catch (error: any) {
       console.error(error);
@@ -271,81 +270,111 @@ export default function FacultyDashboard() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">Faculty Dashboard</h1>
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={handleSubjectHistory}
-              className="flex items-center text-sm font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors"
-              title="View Subject Attendance Matrix"
-            >
-              <History className="h-4 w-4 mr-1.5" />
-              Subject history
-            </button>
-            <span className="text-gray-600">{user.name}</span>
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
+      {/* Floating Rounded Clay Top Bar */}
+      <header className="max-w-7xl w-full mx-auto mb-8">
+        <div className="clay-topbar px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-4 sm:gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full clay-tile flex items-center justify-center font-black text-base text-[#5B4BF0]">
+                M
+              </div>
+              <span className="font-extrabold text-xl text-[#1B1640] tracking-tight">MegaByte</span>
+            </div>
+
+            {/* Nav links as clay pills with active state */}
+            <nav className="flex items-center gap-2">
+              <span className="clay-chip clay-chip-pressed text-xs">
+                Dashboard
+              </span>
+              <button
+                type="button"
+                onClick={handleSubjectHistory}
+                className="clay-chip clay-chip-selectable clay-chip-neutral text-xs"
+                title="View Subject Attendance Matrix"
+              >
+                <History className="h-3.5 w-3.5 mr-1 text-[#5B5F8A]" />
+                Subject history
+              </button>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {user.name && (
+              <span className="hidden md:inline-block text-xs font-bold text-[#5B5F8A]">
+                {user.name}
+              </span>
+            )}
             <button
               onClick={handleLogout}
-              className="flex items-center text-gray-500 hover:text-gray-700"
+              className="clay-btn clay-btn-secondary px-4 py-2 text-xs rounded-full"
             >
-              <LogOut className="h-5 w-5 mr-1" />
+              <LogOut className="h-3.5 w-3.5 mr-1.5 text-[#5B5F8A]" />
               Logout
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div className="bg-white rounded-lg shadow p-6 max-w-2xl mx-auto">
-          <h2 className="text-xl font-semibold mb-6">Create Attendance Session</h2>
-          
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto flex flex-col justify-center">
+        <div className="clay-card p-6 sm:p-10 max-w-xl w-full mx-auto">
+          <div className="mb-6 text-center sm:text-left">
+            <h2 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Create Attendance Session</h2>
+            <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Configure session length and display code for students</p>
+          </div>
+
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                <Clock className="h-4 w-4 mr-2" />
-                Session Duration
+              <label className="label-clay block mb-3">
+                SESSION DURATION
               </label>
-              <div className="grid grid-cols-4 gap-3">
+
+              {/* Selectable clay chips */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
                   { label: '1 Minute', seconds: 60 },
                   { label: '5 Minutes', seconds: 300 },
                   { label: '10 Minutes', seconds: 600 }
-                ].map((item) => (
-                  <button
-                    key={item.seconds}
-                    type="button"
-                    onClick={() => {
-                      setIsCustom(false);
-                      setPresetSeconds(item.seconds);
-                    }}
-                    className={`py-2 px-4 border rounded-md text-sm font-medium ${
-                      !isCustom && presetSeconds === item.seconds
-                        ? 'bg-blue-50 border-blue-500 text-blue-700'
-                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+                ].map((item) => {
+                  const isSelected = !isCustom && presetSeconds === item.seconds;
+                  return (
+                    <button
+                      key={item.seconds}
+                      type="button"
+                      onClick={() => {
+                        setIsCustom(false);
+                        setPresetSeconds(item.seconds);
+                      }}
+                      className={`py-3 px-3 rounded-2xl text-xs font-extrabold transition-all text-center ${
+                        isSelected
+                          ? 'clay-chip-pressed'
+                          : 'clay-chip clay-chip-selectable clay-chip-neutral justify-center'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
                 <button
                   type="button"
                   onClick={() => setIsCustom(true)}
-                  className={`py-2 px-4 border rounded-md text-sm font-medium ${
+                  className={`py-3 px-3 rounded-2xl text-xs font-extrabold transition-all text-center ${
                     isCustom
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'clay-chip-pressed'
+                      : 'clay-chip clay-chip-selectable clay-chip-neutral justify-center'
                   }`}
                 >
                   Custom
                 </button>
               </div>
 
+              {/* Custom mm:ss as clay-inputs */}
               {isCustom && (
-                <div className="mt-4 space-y-2">
+                <div className="mt-5 p-4 rounded-2xl bg-white/50 border border-white/60 space-y-3">
                   <div className="flex items-center gap-3">
                     <div className="flex-1">
-                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">
+                      <label className="label-clay block mb-1">
                         min
                       </label>
                       <input
@@ -357,12 +386,12 @@ export default function FacultyDashboard() {
                         placeholder="15"
                         value={customMin}
                         onChange={(e) => setCustomMin(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-center"
+                        className="w-full px-3 py-2.5 clay-input text-sm font-mono text-center font-bold"
                       />
                     </div>
-                    <span className="text-xl font-bold text-gray-400 mt-5">:</span>
+                    <span className="text-xl font-black text-[#5B5F8A] mt-5">:</span>
                     <div className="flex-1">
-                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">
+                      <label className="label-clay block mb-1">
                         sec
                       </label>
                       <input
@@ -374,17 +403,17 @@ export default function FacultyDashboard() {
                         placeholder="30"
                         value={customSec}
                         onChange={(e) => setCustomSec(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-center"
+                        className="w-full px-3 py-2.5 clay-input text-sm font-mono text-center font-bold"
                       />
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-600 font-medium">
-                    Session length: {formatLivePreview(minVal, secVal)}
+                  <p className="text-xs text-[#5B5F8A] font-semibold">
+                    Session length: <span className="font-extrabold text-[#1B1640]">{formatLivePreview(minVal, secVal)}</span>
                   </p>
 
                   {isCustomInvalid && (
-                    <p className="text-xs text-red-600 font-medium">
+                    <p className="text-xs text-[#F43F5E] font-bold">
                       Enter 15 seconds to 180 minutes
                     </p>
                   )}
@@ -395,16 +424,16 @@ export default function FacultyDashboard() {
             {/* Classroom Geofencing Configuration */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700 flex items-center">
-                  <MapPin className="h-4 w-4 mr-2 text-indigo-600" />
+                <label className="label-clay block flex items-center">
+                  <MapPin className="h-4 w-4 mr-1.5 text-[#5B4BF0]" />
                   Classroom Geofence
                 </label>
                 <button
                   type="button"
                   onClick={() => setShowAddClassroomModal(true)}
-                  className="inline-flex items-center text-xs font-semibold text-blue-600 hover:text-blue-800"
+                  className="clay-chip clay-chip-selectable text-[11px] font-bold"
                 >
-                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  <Plus className="h-3 w-3 mr-1" />
                   Add Classroom
                 </button>
               </div>
@@ -412,7 +441,7 @@ export default function FacultyDashboard() {
               <select
                 value={selectedClassroomId}
                 onChange={(e) => setSelectedClassroomId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-800"
+                className="w-full px-4 py-2.5 rounded-2xl bg-white/80 border border-slate-200/80 text-sm font-semibold text-[#1B1640] focus:outline-none focus:ring-2 focus:ring-[#5B4BF0]"
               >
                 <option value="">No Classroom Geofence (Remote / Disabled)</option>
                 {classrooms.map((c) => (
@@ -423,29 +452,30 @@ export default function FacultyDashboard() {
               </select>
 
               {selectedClassroomId && (
-                <div className="mt-2.5 p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-lg text-xs text-indigo-900 flex items-center justify-between">
+                <div className="mt-2.5 p-3 rounded-2xl bg-[#E8EEFB]/80 border border-[#C5D5F6] text-xs text-[#1B1640] flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <span className="font-semibold text-indigo-950">
-                      Presence Policy: {classrooms.find((c) => c.id === selectedClassroomId)?.verification_policy || 'GPS_ONLY'}
+                    <span className="font-bold text-[#1B1640]">
+                      Policy: {classrooms.find((c) => c.id === selectedClassroomId)?.verification_policy || 'GPS_ONLY'}
                     </span>
-                    <p className="text-indigo-700">
+                    <p className="text-[#5B6190] text-[11px]">
                       Geofence: ≤{classrooms.find((c) => c.id === selectedClassroomId)?.radius_meters}m radius, GPS accuracy ≤{classrooms.find((c) => c.id === selectedClassroomId)?.max_accuracy_meters}m.
                     </p>
                   </div>
-                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 font-bold rounded text-[11px] uppercase tracking-wide">
+                  <span className="clay-chip clay-chip-lavender text-[10px]">
                     Enforced
                   </span>
                 </div>
               )}
             </div>
 
+            {/* Big primary Start Session */}
             <button
               onClick={handleCreateSession}
               disabled={loading || isCustomInvalid}
-              className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="w-full py-4 px-6 clay-btn clay-btn-primary text-base font-extrabold rounded-full"
             >
-              <Play className="h-5 w-5 mr-2" />
-              {loading ? 'Creating...' : 'Start Session'}
+              <Play className="h-5 w-5 mr-2 fill-current" />
+              {loading ? 'Creating session...' : 'Start Session'}
             </button>
           </div>
         </div>
@@ -453,18 +483,21 @@ export default function FacultyDashboard() {
 
       {/* Multi-subject picker modal */}
       {showSubjectPicker && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900">Select Subject History</h3>
+              <div>
+                <h3 className="text-lg font-extrabold text-[#1B1640]">Select Subject History</h3>
+                <p className="text-xs font-semibold text-[#5B5F8A]">Choose a subject to view attendance records</p>
+              </div>
               <button
                 onClick={() => setShowSubjectPicker(false)}
-                className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {subjects.map((s) => (
                 <button
                   key={s.id}
@@ -472,13 +505,15 @@ export default function FacultyDashboard() {
                     setShowSubjectPicker(false);
                     navigate(`/subjects/${s.id}/history`);
                   }}
-                  className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all flex items-center justify-between group"
+                  className="w-full text-left p-4 rounded-2xl clay-card-flat hover:scale-[1.01] transition-transform flex items-center justify-between group"
                 >
                   <div>
-                    <span className="text-xs font-bold text-blue-600 uppercase">{s.code}</span>
-                    <p className="font-semibold text-gray-900">{s.name}</p>
+                    <span className="clay-chip clay-chip-pressed text-[10px] mb-1">
+                      {s.code}
+                    </span>
+                    <p className="font-extrabold text-sm text-[#1B1640] mt-1">{s.name}</p>
                   </div>
-                  <span className="text-xs text-blue-600 font-semibold group-hover:translate-x-0.5 transition-transform">
+                  <span className="text-xs text-[#5B4BF0] font-extrabold group-hover:translate-x-1 transition-transform">
                     View &rarr;
                   </span>
                 </button>

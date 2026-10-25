@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import {
+    getPublicSubjects,
+    enrollSubject,
     getFacultySubjects,
     getSubjectHistory,
     uploadSubjectSheetController,
@@ -16,6 +18,8 @@ const upload = multer({
 
 const router = Router();
 
+router.get('/public', getPublicSubjects);
+router.post('/enroll', verifyToken, requireRole('STUDENT'), enrollSubject);
 router.get('/', verifyToken, requireRole('FACULTY'), getFacultySubjects);
 router.get('/:id/history', verifyToken, requireRole('FACULTY'), getSubjectHistory);
 

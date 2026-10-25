@@ -34,8 +34,9 @@ CREATE TABLE enrollments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
-    class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-    CONSTRAINT unique_student_subject_class UNIQUE (student_id, subject_id, class_id)
+    class_id UUID REFERENCES classes(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_student_subject UNIQUE (student_id, subject_id)
 );
 
 CREATE TABLE classrooms (
@@ -182,5 +183,23 @@ CREATE TABLE session_exports (
 );
 
 ALTER TABLE session_exports ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE auth_otps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('signup', 'reset')),
+    code_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    attempts INT DEFAULT 0,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_auth_otps_email_purpose_created_at ON auth_otps (email, purpose, created_at DESC);
+
+ALTER TABLE auth_otps ENABLE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX users_lower_email_idx ON users (LOWER(email));
+CREATE UNIQUE INDEX users_student_id_unique_idx ON users (student_id) WHERE student_id IS NOT NULL;
 
 
