@@ -55,6 +55,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
         name: string;
         email: string;
         status: string;
+        location_status: string | null;
+        distance_m: number | null;
         submitted_at: Date | null;
         reviewed_at: Date | null;
         face_match_score: number | null;
@@ -66,7 +68,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
     if (enrolledRes.rowCount && enrolledRes.rowCount > 0) {
         // Fetch attendance records for this session
         const recordsRes = await pool.query(
-            `SELECT student_id, status, submitted_at, reviewed_at, face_match_score, liveness_score
+            `SELECT student_id, status, submitted_at, reviewed_at, face_match_score, liveness_score,
+                    location_status, COALESCE(distance_m, location_distance_m) AS distance_m
              FROM attendance_records
              WHERE session_id = $1`,
             [sessionId]
@@ -84,6 +87,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
             let reviewedAt: Date | null = null;
             let faceMatchScore: number | null = null;
             let livenessScore: number | null = null;
+            let locationStatus: string | null = null;
+            let distanceM: number | null = null;
 
             if (rec) {
                 if (rec.status === 'APPROVED') {
@@ -104,6 +109,10 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
                 livenessScore = rec.liveness_score !== null && rec.liveness_score !== undefined
                     ? Number(rec.liveness_score)
                     : null;
+                locationStatus = rec.location_status || null;
+                distanceM = rec.distance_m !== null && rec.distance_m !== undefined
+                    ? Number(rec.distance_m)
+                    : null;
             }
 
             exportRows.push({
@@ -111,6 +120,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
                 name: student.name || '',
                 email: student.email || '',
                 status,
+                location_status: locationStatus,
+                distance_m: distanceM,
                 submitted_at: submittedAt,
                 reviewed_at: reviewedAt,
                 face_match_score: faceMatchScore,
@@ -121,7 +132,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
         // Fallback: if no students are enrolled in the subject, only students with a record
         const fallbackRes = await pool.query(
             `SELECT u.student_id, u.name, u.email,
-                    a.status, a.submitted_at, a.reviewed_at, a.face_match_score, a.liveness_score
+                    a.status, a.submitted_at, a.reviewed_at, a.face_match_score, a.liveness_score,
+                    a.location_status, COALESCE(a.distance_m, a.location_distance_m) AS distance_m
              FROM attendance_records a
              JOIN users u ON a.student_id = u.id
              WHERE a.session_id = $1
@@ -146,6 +158,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
                 name: row.name || '',
                 email: row.email || '',
                 status,
+                location_status: row.location_status || null,
+                distance_m: row.distance_m !== null && row.distance_m !== undefined ? Number(row.distance_m) : null,
                 submitted_at: row.submitted_at ? new Date(row.submitted_at) : null,
                 reviewed_at: row.reviewed_at ? new Date(row.reviewed_at) : null,
                 face_match_score: row.face_match_score !== null && row.face_match_score !== undefined
@@ -172,6 +186,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
         { header: 'name', key: 'name', width: 24 },
         { header: 'email', key: 'email', width: 30 },
         { header: 'status', key: 'status', width: 14 },
+        { header: 'location_status', key: 'location_status', width: 16 },
+        { header: 'distance_m', key: 'distance_m', width: 14 },
         { header: 'submitted_at (UTC)', key: 'submitted_at', width: 22 },
         { header: 'reviewed_at (UTC)', key: 'reviewed_at', width: 22 },
         { header: 'face_match_score', key: 'face_match_score', width: 18 },
@@ -180,7 +196,7 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
 
     const headerRow = worksheet.getRow(1);
     headerRow.font = { bold: true };
-    worksheet.autoFilter = 'A1:H1';
+    worksheet.autoFilter = 'A1:J1';
 
     for (const item of exportRows) {
         const addedRow = worksheet.addRow({
@@ -188,6 +204,8 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
             name: sanitizeText(item.name),
             email: sanitizeText(item.email),
             status: sanitizeText(item.status),
+            location_status: sanitizeText(item.location_status || ''),
+            distance_m: item.distance_m !== null && item.distance_m !== undefined ? Math.round(item.distance_m * 10) / 10 : null,
             submitted_at: item.submitted_at,
             reviewed_at: item.reviewed_at,
             face_match_score: item.face_match_score,
@@ -199,21 +217,27 @@ export async function buildSessionWorkbook(sessionId: string): Promise<Buffer> {
         addedRow.getCell(2).numFmt = '@';
         addedRow.getCell(3).numFmt = '@';
         addedRow.getCell(4).numFmt = '@';
+        addedRow.getCell(5).numFmt = '@';
+
+        // Decimal numbers for distance
+        if (item.distance_m !== null && item.distance_m !== undefined) {
+            addedRow.getCell(6).numFmt = '0.0';
+        }
 
         // Real Excel date-time format in UTC
         if (item.submitted_at) {
-            addedRow.getCell(5).numFmt = 'yyyy-mm-dd hh:mm:ss';
+            addedRow.getCell(7).numFmt = 'yyyy-mm-dd hh:mm:ss';
         }
         if (item.reviewed_at) {
-            addedRow.getCell(6).numFmt = 'yyyy-mm-dd hh:mm:ss';
+            addedRow.getCell(8).numFmt = 'yyyy-mm-dd hh:mm:ss';
         }
 
-        // Decimal numbers
+        // Decimal numbers for scores
         if (item.face_match_score !== null && item.face_match_score !== undefined) {
-            addedRow.getCell(7).numFmt = '0.00';
+            addedRow.getCell(9).numFmt = '0.00';
         }
         if (item.liveness_score !== null && item.liveness_score !== undefined) {
-            addedRow.getCell(8).numFmt = '0.00';
+            addedRow.getCell(10).numFmt = '0.00';
         }
     }
 

@@ -91,3 +91,40 @@ export async function downloadSubjectSheet(
 
     return null;
 }
+
+/**
+ * Deletes a subject sheet file from Supabase Storage bucket 'subject-sheets'.
+ */
+export async function deleteSubjectSheetFile(filePath: string): Promise<void> {
+    if (supabase && filePath) {
+        try {
+            const { error } = await supabase.storage
+                .from('subject-sheets')
+                .remove([filePath]);
+            if (error) {
+                console.error(`Error deleting subject sheet file ${filePath}:`, error.message);
+            }
+        } catch (err) {
+            console.error(`Exception deleting subject sheet file ${filePath}:`, err);
+        }
+    }
+}
+
+/**
+ * Deletes a session export file from Supabase Storage bucket 'session-exports'.
+ */
+export async function deleteSessionExportFile(facultyId: string, sessionId: string): Promise<void> {
+    const storagePath = `${facultyId}/${sessionId}.xlsx`;
+    if (supabase) {
+        try {
+            const { error } = await supabase.storage
+                .from('session-exports')
+                .remove([storagePath]);
+            if (error) {
+                console.error(`Error deleting session export ${storagePath}:`, error.message);
+            }
+        } catch (err) {
+            console.error(`Exception deleting session export ${storagePath}:`, err);
+        }
+    }
+}

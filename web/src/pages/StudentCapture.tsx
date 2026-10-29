@@ -70,7 +70,6 @@ export default function StudentCapture() {
   const [errorMessage, setErrorMessage] = useState('');
   const [retryHint, setRetryHint] = useState('');
   const [success, setSuccess] = useState(false);
-  const [verificationToken, setVerificationToken] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -172,7 +171,7 @@ export default function StudentCapture() {
           setGpsStatus({
             status: 'ACQUIRED',
             accuracyM: loc.accuracy,
-            details: `GPS Fix acquired (±${loc.accuracy}m)`,
+            details: 'GPS Fix acquired',
           });
           resolve(loc);
         },
@@ -260,6 +259,15 @@ export default function StudentCapture() {
     try {
       // 1. Acquire GPS location and Wi-Fi presence evidence
       const clientLocation = await acquireLocation();
+      if (!clientLocation) {
+        setOverallStatus('REJECTED');
+        setGpsStatus({ status: 'DENIED', details: 'Location access required' });
+        throw {
+          code: 'LOCATION_REQUIRED',
+          message: 'Location access required to verify classroom attendance.',
+          retryHint: 'Enable GPS and grant high-accuracy location permission.',
+        };
+      }
       const clientWifi = await probeWifi();
 
       setProgressPercent(20);
@@ -296,11 +304,10 @@ export default function StudentCapture() {
         // Specific status reflections
         if (challengeData.code === 'LOCATION_REQUIRED' || challengeData.code === 'PERMISSION_DENIED') {
           setGpsStatus({ status: 'DENIED', details: 'Location access required' });
-        } else if (challengeData.code === 'OUTSIDE_CLASSROOM') {
+        } else if (challengeData.code === 'OUTSIDE_CLASSROOM' || challengeData.code === 'LOCATION_TOO_FAR') {
           setGpsStatus({
             status: 'OUTSIDE',
-            distanceM: challengeData.distanceMeters,
-            details: challengeData.message,
+            details: 'You are too far from the classroom. Move closer to the faculty and try again.',
           });
         } else if (challengeData.code === 'ACCURACY_TOO_LOW' || challengeData.code === 'STALE_LOCATION') {
           setGpsStatus({ status: 'LOW_ACCURACY', details: challengeData.message });
@@ -342,7 +349,7 @@ export default function StudentCapture() {
         distanceM: locationDistanceM,
         accuracyM: locationAccuracyM,
         details: locationVerified
-          ? `In Classroom (${Math.round(locationDistanceM || 0)}m away) • ±${Math.round(locationAccuracyM || 0)}m`
+          ? 'Location verified'
           : 'Geofence check bypassed or not required',
       });
 
@@ -393,10 +400,21 @@ export default function StudentCapture() {
         };
       }
 
-      // 5. Submit attendance to backend for server-side verification confirmation
+      // 5. Submit attendance to backend with verified location for server-side verification confirmation
       setSubStep('SUBMITTING');
       setFaceStatus({ status: 'MATCHING', details: 'Analyzing biometrics & liveness on server...' });
       setProgressPercent(95);
+
+      const submitLocation = await acquireLocation() || clientLocation;
+      if (!submitLocation) {
+        setOverallStatus('REJECTED');
+        setGpsStatus({ status: 'DENIED', details: 'Location access required' });
+        throw {
+          code: 'LOCATION_REQUIRED',
+          message: 'Location access required to submit attendance.',
+          retryHint: 'Enable GPS and grant high-accuracy location permission.',
+        };
+      }
 
       let submitRes: globalThis.Response;
       try {
@@ -410,6 +428,7 @@ export default function StudentCapture() {
             code: cleanCode,
             challengeId,
             frames,
+            location: submitLocation,
           }),
         });
       } catch (submitNetErr: any) {
@@ -431,6 +450,23 @@ export default function StudentCapture() {
         let userHint = submitData.retryHint || 'Please try again in good lighting.';
 
         switch (submitData.code) {
+          case 'LOCATION_REQUIRED':
+            userMsg = submitData.message || 'Location access required.';
+            userHint = submitData.retryHint || 'Enable location services and try again.';
+            setGpsStatus({ status: 'DENIED', details: userMsg });
+            break;
+          case 'LOCATION_INACCURATE':
+          case 'ACCURACY_TOO_LOW':
+            userMsg = submitData.message || 'GPS accuracy is too low.';
+            userHint = submitData.retryHint || 'Move near a window or open area and try again.';
+            setGpsStatus({ status: 'LOW_ACCURACY', details: userMsg });
+            break;
+          case 'OUTSIDE_CLASSROOM':
+          case 'LOCATION_TOO_FAR':
+            userMsg = 'You are too far from the classroom. Move closer to the faculty and try again.';
+            userHint = submitData.retryHint || 'Move closer to the faculty and try again.';
+            setGpsStatus({ status: 'OUTSIDE', details: userMsg });
+            break;
           case 'NO_FACE':
             userMsg = 'No face detected in video stream.';
             userHint = 'Ensure your face is centered and clearly lit.';
@@ -468,7 +504,6 @@ export default function StudentCapture() {
 
       // Backend confirmed verification success (HTTP 201)
       setProgressPercent(100);
-      setVerificationToken(submitData.verification_token);
       setFaceStatus({
         status: 'PASSED',
         matchScore: submitData.face_match_score,
@@ -503,7 +538,6 @@ export default function StudentCapture() {
     setOverallStatus('UNVERIFIED');
     setFaceStatus({ status: 'IDLE' });
     setGpsStatus({ status: 'PENDING' });
-    setVerificationToken(null);
     setProgressPercent(0);
     setIsSubmitting(false);
     startCamera();
@@ -545,18 +579,18 @@ export default function StudentCapture() {
           </div>
         </header>
 
-        {/* Assigned Classroom & Session Banner (Visible once code verified or active) */}
+        {/* Assigned Subject & Session Banner (Visible once code verified or active) */}
         {sessionInfo && (
           <div className="bg-gradient-to-r from-blue-900/40 via-indigo-900/30 to-slate-800/60 border border-blue-500/30 rounded-2xl p-4 shadow-md backdrop-blur-xs space-y-1.5 animate-in fade-in duration-200">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-400/20">
-                Assigned Classroom
+                {sessionInfo.subjectName || 'Subject'}
               </span>
               <span className="text-xs font-mono font-bold text-slate-300 tracking-wider">
                 Code: {sessionInfo.sessionCode}
               </span>
             </div>
-            <h2 className="text-base font-bold text-white">{sessionInfo.classroomName}</h2>
+            <h2 className="text-base font-bold text-white">{sessionInfo.subjectName || 'Subject'}</h2>
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>{sessionInfo.subjectName}</span>
               {sessionInfo.className && <span className="text-slate-500">• {sessionInfo.className}</span>}
@@ -640,11 +674,6 @@ export default function StudentCapture() {
               <p className="text-[11px] font-medium text-slate-300 truncate">
                 {gpsStatus.details || 'Awaiting session code'}
               </p>
-              {gpsStatus.accuracyM && (
-                <span className="text-[10px] text-slate-400 mt-0.5">
-                  Accuracy: ±{gpsStatus.accuracyM}m
-                </span>
-              )}
             </div>
 
             {/* Wi-Fi Verification Card */}
@@ -730,17 +759,13 @@ export default function StudentCapture() {
                     </span>
                     <h3 className="text-lg font-bold text-white">Attendance Verified & Submitted</h3>
                     <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                      All required checks (GPS Geofence, Wi-Fi policy, and Biometric Liveness) passed successfully.
+                      Your face and location were verified.
                     </p>
                   </div>
 
-                  {/* Verification Token Receipt */}
-                  {verificationToken && (
+                  {/* Verification Receipt */}
+                  {(faceStatus.matchScore !== undefined || faceStatus.livenessScore !== undefined) && (
                     <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-700/80 text-left space-y-1">
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                        <span>Verification Token:</span>
-                        <span className="text-green-400 font-semibold">{verificationToken.slice(0, 16)}...</span>
-                      </div>
                       {faceStatus.matchScore !== undefined && (
                         <div className="flex items-center justify-between text-[11px] text-slate-400">
                           <span>Face Match Score:</span>

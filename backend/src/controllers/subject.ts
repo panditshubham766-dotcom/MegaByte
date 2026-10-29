@@ -3,8 +3,9 @@ import ExcelJS from 'exceljs';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
 import { markExpired } from './session';
+import { computeStudentAttendance, isRecordPresent } from '../services/attendanceCalculator';
 import { formatSessionHeader, updateSubjectSheet } from '../services/subjectSheet';
-import { uploadSubjectSheet, downloadSubjectSheet } from '../services/storageHelper';
+import { uploadSubjectSheet, downloadSubjectSheet, deleteSubjectSheetFile, deleteSessionExportFile } from '../services/storageHelper';
 
 export const getFacultySubjects = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
@@ -15,16 +16,232 @@ export const getFacultySubjects = async (req: AuthRequest, res: Response): Promi
         }
 
         const subjectsRes = await pool.query(
-            `SELECT id, code, name 
-             FROM subjects 
-             WHERE faculty_id = $1 
-             ORDER BY name ASC`,
+            `SELECT s.id, s.code, s.name, COUNT(sess.id)::int AS session_count
+             FROM subjects s
+             LEFT JOIN attendance_sessions sess ON sess.subject_id = s.id
+             WHERE s.faculty_id = $1
+             GROUP BY s.id, s.code, s.name
+             ORDER BY s.name ASC`,
             [facultyId]
         );
 
         res.status(200).json(subjectsRes.rows);
     } catch (error) {
         console.error('Error fetching faculty subjects:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const createFacultySubject = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const facultyId = req.user?.id;
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const rawCode = typeof req.body.code === 'string' ? req.body.code.trim() : '';
+        const rawName = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+        const cleanCode = rawCode.toUpperCase();
+        const cleanName = rawName;
+
+        // Code validation: 2-12 letters/digits only
+        if (!/^[A-Z0-9]{2,12}$/.test(cleanCode)) {
+            res.status(400).json({ message: 'Subject code must be 2-12 letters and digits only' });
+            return;
+        }
+
+        // Name validation: 2-80 chars
+        if (cleanName.length < 2 || cleanName.length > 80) {
+            res.status(400).json({ message: 'Subject name must be between 2 and 80 characters' });
+            return;
+        }
+
+        // Check duplicate code across all subjects case-insensitively
+        const dupRes = await pool.query(
+            'SELECT id FROM subjects WHERE UPPER(code) = UPPER($1) LIMIT 1',
+            [cleanCode]
+        );
+        if (dupRes.rowCount && dupRes.rowCount > 0) {
+            res.status(409).json({ code: 'SUBJECT_CODE_TAKEN', message: 'Subject code already taken' });
+            return;
+        }
+
+        const insertRes = await pool.query(
+            `INSERT INTO subjects (faculty_id, code, name)
+             VALUES ($1, $2, $3)
+             RETURNING id, code, name`,
+            [facultyId, cleanCode, cleanName]
+        );
+
+        const newSub = insertRes.rows[0];
+        res.status(201).json({
+            id: newSub.id,
+            code: newSub.code,
+            name: newSub.name,
+            session_count: 0
+        });
+    } catch (error: any) {
+        if (error?.code === '23505') {
+            res.status(409).json({ code: 'SUBJECT_CODE_TAKEN', message: 'Subject code already taken' });
+            return;
+        }
+        console.error('Error creating subject:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const renameFacultySubject = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const facultyId = req.user?.id;
+        const { id } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const subRes = await pool.query(
+            'SELECT id, faculty_id FROM subjects WHERE id = $1',
+            [id]
+        );
+
+        if (subRes.rowCount === 0) {
+            res.status(404).json({ message: 'Subject not found' });
+            return;
+        }
+
+        if (subRes.rows[0].faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this subject' });
+            return;
+        }
+
+        const cleanName = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+        if (cleanName.length < 2 || cleanName.length > 80) {
+            res.status(400).json({ message: 'Subject name must be between 2 and 80 characters' });
+            return;
+        }
+
+        const updateRes = await pool.query(
+            'UPDATE subjects SET name = $1 WHERE id = $2 RETURNING id, code, name',
+            [cleanName, id]
+        );
+
+        res.status(200).json(updateRes.rows[0]);
+    } catch (error) {
+        console.error('Error renaming subject:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const deleteFacultySubject = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        const { id } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const subRes = await pool.query(
+            'SELECT id, faculty_id, code, master_sheet_path FROM subjects WHERE id = $1',
+            [id]
+        );
+
+        if (subRes.rowCount === 0) {
+            res.status(404).json({ message: 'Subject not found' });
+            return;
+        }
+
+        const subject = subRes.rows[0];
+        if (subject.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this subject' });
+            return;
+        }
+
+        // Check if subject has any ACTIVE session
+        const activeSessRes = await pool.query(
+            `SELECT id FROM attendance_sessions 
+             WHERE subject_id = $1 AND status = 'ACTIVE' AND expires_at > NOW() 
+             LIMIT 1`,
+            [id]
+        );
+        if (activeSessRes.rowCount && activeSessRes.rowCount > 0) {
+            res.status(409).json({
+                code: 'SUBJECT_HAS_ACTIVE_SESSION',
+                error: 'SUBJECT_HAS_ACTIVE_SESSION',
+                message: 'End the live session first'
+            });
+            return;
+        }
+
+        // Check sessions of this subject
+        const sessRes = await pool.query(
+            'SELECT id FROM attendance_sessions WHERE subject_id = $1',
+            [id]
+        );
+        const sessionIds = sessRes.rows.map(r => r.id);
+
+        if (sessionIds.length > 0) {
+            const rawConfirm = req.body?.confirm_code ?? req.body?.confirmCode;
+            const confirmCode = typeof rawConfirm === 'string' ? rawConfirm.trim() : '';
+            if (!confirmCode || confirmCode.toUpperCase() !== subject.code.toUpperCase()) {
+                res.status(422).json({
+                    code: 'CONFIRM_CODE_REQUIRED',
+                    error: 'CONFIRM_CODE_REQUIRED',
+                    message: 'Subject code confirmation required'
+                });
+                return;
+            }
+        }
+
+        // In ONE database transaction
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            if (sessionIds.length > 0) {
+                await client.query('DELETE FROM attendance_records WHERE session_id = ANY($1::uuid[])', [sessionIds]);
+                await client.query('DELETE FROM liveness_challenges WHERE session_id = ANY($1::uuid[])', [sessionIds]);
+                await client.query('DELETE FROM verification_sessions WHERE session_id = ANY($1::uuid[])', [sessionIds]);
+                await client.query('DELETE FROM session_exports WHERE session_id = ANY($1::uuid[])', [sessionIds]);
+                await client.query('DELETE FROM attendance_sessions WHERE id = ANY($1::uuid[])', [sessionIds]);
+            }
+
+            await client.query('DELETE FROM subject_sheet_files WHERE subject_id = $1', [id]);
+            await client.query('DELETE FROM enrollments WHERE subject_id = $1', [id]);
+            await client.query('DELETE FROM subjects WHERE id = $1', [id]);
+
+            await client.query('COMMIT');
+        } catch (txErr) {
+            await client.query('ROLLBACK');
+            throw txErr;
+        } finally {
+            client.release();
+        }
+
+        // Storage cleanup after commit (log storage cleanup failures but don't fail request)
+        for (const sId of sessionIds) {
+            try {
+                await deleteSessionExportFile(facultyId, sId);
+            } catch (e) {
+                console.error(`Storage cleanup failure for session export ${sId}:`, e);
+            }
+        }
+        if (subject.master_sheet_path) {
+            try {
+                await deleteSubjectSheetFile(subject.master_sheet_path);
+            } catch (e) {
+                console.error(`Storage cleanup failure for master sheet ${subject.master_sheet_path}:`, e);
+            }
+        }
+
+        res.status(200).json({ message: 'Subject deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting subject:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
@@ -106,29 +323,15 @@ export const getSubjectHistory = async (req: AuthRequest, res: Response): Promis
             }
         }
 
-        // 5. Build students list
+        // 5. Build students list using shared calculation
+        const sessionIds = sessions.map(s => s.id);
         const students = enrolledStudents.map(student => {
-            let presentCount = 0;
-            let studentTotal = 0;
+            const stats = computeStudentAttendance(sessionIds, (sid) => recordsMap.get(`${student.user_id}:${sid}`)?.status);
             const records: Record<string, { status: 'APPROVED' | 'REJECTED' | 'PENDING' | null; edited: boolean; edit_reason: string | null }> = {};
 
             for (const session of sessions) {
-                if (student.enrolled_at && new Date(session.created_at).getTime() < new Date(student.enrolled_at).getTime()) {
-                    records[session.id] = {
-                        status: null,
-                        edited: false,
-                        edit_reason: null
-                    };
-                    continue;
-                }
-
-                studentTotal++;
                 const rec = recordsMap.get(`${student.user_id}:${session.id}`);
                 const status = (rec?.status as 'APPROVED' | 'REJECTED' | 'PENDING') || null;
-
-                if (status === 'APPROVED') {
-                    presentCount++;
-                }
 
                 records[session.id] = {
                     status,
@@ -137,15 +340,13 @@ export const getSubjectHistory = async (req: AuthRequest, res: Response): Promis
                 };
             }
 
-            const percentage = studentTotal > 0 ? Math.round((presentCount / studentTotal) * 100) : 0;
-
             return {
                 student_id: student.student_id || student.user_id,
                 user_id: student.user_id,
                 name: student.name,
-                present: presentCount,
-                total: studentTotal,
-                percentage,
+                present: stats.present,
+                total: stats.total,
+                percentage: stats.percentage,
                 records
             };
         });
@@ -388,23 +589,16 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
             }
         }
 
+        const sheetSessionIds = sessions.map(s => s.id);
         const rows = students.map(student => {
-            let presentCount = 0;
-            let studentTotal = 0;
+            const stats = computeStudentAttendance(sheetSessionIds, (sid) => recordsMap.get(`${student.user_id}:${sid}`));
             const cells: string[] = [];
 
             for (const session of sessions) {
-                if (student.enrolled_at && new Date(session.created_at).getTime() < new Date(student.enrolled_at).getTime()) {
-                    cells.push('-');
-                    continue;
-                }
-
-                studentTotal++;
                 const status = recordsMap.get(`${student.user_id}:${session.id}`);
                 let text = 'A';
-                if (status === 'APPROVED') {
+                if (isRecordPresent(status)) {
                     text = 'P';
-                    presentCount++;
                 } else if (status === 'REJECTED') {
                     text = 'R';
                 } else if (status === 'PENDING') {
@@ -415,15 +609,13 @@ export const viewSubjectSheetController = async (req: AuthRequest, res: Response
                 cells.push(text);
             }
 
-            const percentage = studentTotal > 0 ? Math.round((presentCount / studentTotal) * 100) : 0;
-
             return {
                 student_id: student.student_id || student.user_id,
                 name: student.name,
                 cells,
-                present: presentCount,
-                total: studentTotal,
-                percentage
+                present: stats.present,
+                total: stats.total,
+                percentage: stats.percentage
             };
         });
 

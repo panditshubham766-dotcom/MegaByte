@@ -2,8 +2,9 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
 import { normalizeBssid, type VerificationPolicy } from '../services/wifi';
+import { getGeoMaxAccuracyM } from '../services/geo';
 
-const VALID_POLICIES: VerificationPolicy[] = ['GPS_ONLY', 'WIFI_ONLY', 'GPS_OR_WIFI', 'GPS_AND_WIFI'];
+const VALID_POLICIES: VerificationPolicy[] = ['GPS_ONLY'];
 
 /**
  * GET /api/classrooms
@@ -13,7 +14,11 @@ export const listClassrooms = async (req: AuthRequest, res: Response): Promise<v
     try {
         const result = await pool.query(
             `SELECT id, name, building, latitude, longitude,
-                    radius_meters, max_accuracy_meters, verification_policy, is_active, created_at
+                    COALESCE(radius_m, radius_meters, 100) AS radius_m,
+                    COALESCE(radius_meters, radius_m, 100) AS radius_meters,
+                    COALESCE(hard_limit_m, 300) AS hard_limit_m,
+                    max_accuracy_meters, verification_policy, is_active, created_at,
+                    accuracy_meters, accuracy
              FROM classrooms
              WHERE is_active = TRUE
              ORDER BY building ASC NULLS LAST, name ASC`
@@ -33,7 +38,11 @@ export const listAllClassrooms = async (req: AuthRequest, res: Response): Promis
     try {
         const result = await pool.query(
             `SELECT id, name, building, latitude, longitude,
-                    radius_meters, max_accuracy_meters, verification_policy, is_active, created_at, updated_at
+                    COALESCE(radius_m, radius_meters, 100) AS radius_m,
+                    COALESCE(radius_meters, radius_m, 100) AS radius_meters,
+                    COALESCE(hard_limit_m, 300) AS hard_limit_m,
+                    max_accuracy_meters, verification_policy, is_active, created_at, updated_at,
+                    accuracy_meters, accuracy
              FROM classrooms
              ORDER BY building ASC NULLS LAST, name ASC`
         );
@@ -48,7 +57,7 @@ export const listAllClassrooms = async (req: AuthRequest, res: Response): Promis
  * POST /api/classrooms
  * Creates a new classroom. Faculty only.
  *
- * Body: { name, building?, latitude, longitude, radius_meters?, max_accuracy_meters?, verification_policy? }
+ * Body: { name, building?, lat?, lng?, latitude?, longitude?, radius_m?, hard_limit_m?, max_accuracy_meters?, accuracy?, accuracy_meters? }
  */
 export const createClassroom = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
@@ -58,7 +67,20 @@ export const createClassroom = async (req: AuthRequest, res: Response): Promise<
             return;
         }
 
-        const { name, building, latitude, longitude, radius_meters, max_accuracy_meters, verification_policy } = req.body;
+        const {
+            name,
+            building,
+            lat: rawLat,
+            lng: rawLng,
+            latitude: rawLatitude,
+            longitude: rawLongitude,
+            radius_m: rawRadiusM,
+            radius_meters: rawRadiusMeters,
+            hard_limit_m: rawHardLimitM,
+            max_accuracy_meters,
+            accuracy,
+            accuracy_meters
+        } = req.body;
 
         // Validate required fields
         if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -66,8 +88,11 @@ export const createClassroom = async (req: AuthRequest, res: Response): Promise<
             return;
         }
 
-        const lat = Number(latitude);
-        const lon = Number(longitude);
+        const resolvedLat = rawLat !== undefined && rawLat !== null ? rawLat : rawLatitude;
+        const resolvedLng = rawLng !== undefined && rawLng !== null ? rawLng : rawLongitude;
+
+        const lat = Number(resolvedLat);
+        const lon = Number(resolvedLng);
         if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
             res.status(400).json({ message: 'latitude must be a number between -90 and 90' });
             return;
@@ -76,30 +101,58 @@ export const createClassroom = async (req: AuthRequest, res: Response): Promise<
             res.status(400).json({ message: 'longitude must be a number between -180 and 180' });
             return;
         }
-
-        const radius = radius_meters !== undefined ? parseInt(radius_meters, 10) : 100;
-        if (!Number.isInteger(radius) || radius < 1 || radius > 5000) {
-            res.status(400).json({ message: 'radius_meters must be an integer between 1 and 5000 (default: 100)' });
+        if (lat === 0 && lon === 0) {
+            res.status(400).json({ message: 'latitude and longitude cannot be (0,0)' });
             return;
         }
 
-        const maxAcc = max_accuracy_meters !== undefined ? parseInt(max_accuracy_meters, 10) : 30;
+        // radius_m: default 100, allowed 10-500
+        const inputRadius = rawRadiusM !== undefined && rawRadiusM !== null && String(rawRadiusM).trim() !== ''
+            ? rawRadiusM
+            : rawRadiusMeters;
+        const radius = (inputRadius !== undefined && inputRadius !== null && String(inputRadius).trim() !== '')
+            ? parseInt(inputRadius, 10)
+            : 100;
+        if (!Number.isInteger(radius) || radius < 10 || radius > 500) {
+            res.status(400).json({ message: 'radius_m must be an integer between 10 and 500 (default: 100)' });
+            return;
+        }
+
+        // hard_limit_m: default 300, must be >= radius_m, max 2000
+        const hardLimit = (rawHardLimitM !== undefined && rawHardLimitM !== null && String(rawHardLimitM).trim() !== '')
+            ? parseInt(rawHardLimitM, 10)
+            : 300;
+        if (!Number.isInteger(hardLimit) || hardLimit < radius || hardLimit > 2000) {
+            res.status(400).json({ message: `hard_limit_m must be an integer between radius (${radius}m) and 2000 (default: 300)` });
+            return;
+        }
+
+        const maxAcc = (max_accuracy_meters !== undefined && max_accuracy_meters !== null && String(max_accuracy_meters).trim() !== '')
+            ? parseInt(max_accuracy_meters, 10)
+            : getGeoMaxAccuracyM();
         if (!Number.isInteger(maxAcc) || maxAcc < 1 || maxAcc > 500) {
-            res.status(400).json({ message: 'max_accuracy_meters must be an integer between 1 and 500 (default: 30)' });
+            res.status(400).json({ message: `max_accuracy_meters must be an integer between 1 and 500 (default: ${getGeoMaxAccuracyM()})` });
             return;
         }
 
-        const policy: VerificationPolicy = verification_policy || 'GPS_ONLY';
-        if (!VALID_POLICIES.includes(policy)) {
-            res.status(400).json({ message: `verification_policy must be one of: ${VALID_POLICIES.join(', ')}` });
-            return;
+        // Stored GPS accuracy captured from browser or device
+        let storedAccuracy: number | null = null;
+        const rawAcc = accuracy !== undefined && accuracy !== null ? accuracy : accuracy_meters;
+        if (rawAcc !== undefined && rawAcc !== null && String(rawAcc).trim() !== '') {
+            const parsedAcc = Number(rawAcc);
+            if (Number.isFinite(parsedAcc) && parsedAcc >= 0) {
+                storedAccuracy = parsedAcc;
+            }
         }
+
+        // Policy is GPS distance only
+        const policy: VerificationPolicy = 'GPS_ONLY';
 
         const result = await pool.query(
-            `INSERT INTO classrooms (name, building, latitude, longitude, radius_meters, max_accuracy_meters, verification_policy)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING id, name, building, latitude, longitude, radius_meters, max_accuracy_meters, verification_policy, is_active, created_at`,
-            [name.trim(), building?.trim() || null, lat, lon, radius, maxAcc, policy]
+            `INSERT INTO classrooms (name, building, latitude, longitude, radius_m, radius_meters, hard_limit_m, max_accuracy_meters, verification_policy, accuracy_meters, accuracy)
+             VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9)
+             RETURNING id, name, building, latitude, longitude, radius_m, radius_meters, hard_limit_m, max_accuracy_meters, verification_policy, is_active, created_at, accuracy_meters, accuracy`,
+            [name.trim(), building?.trim() || null, lat, lon, radius, hardLimit, maxAcc, policy, storedAccuracy]
         );
 
         res.status(201).json(result.rows[0]);
@@ -122,13 +175,28 @@ export const updateClassroom = async (req: AuthRequest, res: Response): Promise<
         }
 
         const { id } = req.params;
-        const { name, building, latitude, longitude, radius_meters, max_accuracy_meters, verification_policy, is_active } = req.body;
+        const {
+            name,
+            building,
+            lat: rawLat,
+            lng: rawLng,
+            latitude: rawLatitude,
+            longitude: rawLongitude,
+            radius_m: rawRadiusM,
+            radius_meters: rawRadiusMeters,
+            hard_limit_m: rawHardLimitM,
+            max_accuracy_meters,
+            is_active,
+            accuracy,
+            accuracy_meters
+        } = req.body;
 
-        const existing = await pool.query('SELECT id FROM classrooms WHERE id = $1', [id]);
-        if (existing.rowCount === 0) {
+        const existingRes = await pool.query('SELECT id, radius_m, radius_meters, hard_limit_m FROM classrooms WHERE id = $1', [id]);
+        if (existingRes.rowCount === 0) {
             res.status(404).json({ message: 'Classroom not found' });
             return;
         }
+        const existing = existingRes.rows[0];
 
         const updates: string[] = [];
         const params: any[] = [];
@@ -146,8 +214,9 @@ export const updateClassroom = async (req: AuthRequest, res: Response): Promise<
             updates.push(`building = $${idx++}`);
             params.push(building?.trim() || null);
         }
-        if (latitude !== undefined) {
-            const lat = Number(latitude);
+        const resolvedLat = rawLat !== undefined && rawLat !== null ? rawLat : rawLatitude;
+        if (resolvedLat !== undefined) {
+            const lat = Number(resolvedLat);
             if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
                 res.status(400).json({ message: 'latitude must be between -90 and 90' });
                 return;
@@ -155,8 +224,9 @@ export const updateClassroom = async (req: AuthRequest, res: Response): Promise<
             updates.push(`latitude = $${idx++}`);
             params.push(lat);
         }
-        if (longitude !== undefined) {
-            const lon = Number(longitude);
+        const resolvedLng = rawLng !== undefined && rawLng !== null ? rawLng : rawLongitude;
+        if (resolvedLng !== undefined) {
+            const lon = Number(resolvedLng);
             if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
                 res.status(400).json({ message: 'longitude must be between -180 and 180' });
                 return;
@@ -164,15 +234,39 @@ export const updateClassroom = async (req: AuthRequest, res: Response): Promise<
             updates.push(`longitude = $${idx++}`);
             params.push(lon);
         }
-        if (radius_meters !== undefined) {
-            const r = parseInt(radius_meters, 10);
-            if (!Number.isInteger(r) || r < 1 || r > 5000) {
-                res.status(400).json({ message: 'radius_meters must be 1-5000' });
+
+        const inputRadius = rawRadiusM !== undefined ? rawRadiusM : rawRadiusMeters;
+        let newRadius: number = Number(existing.radius_m ?? existing.radius_meters ?? 100);
+        if (inputRadius !== undefined) {
+            const r = parseInt(inputRadius, 10);
+            if (!Number.isInteger(r) || r < 10 || r > 500) {
+                res.status(400).json({ message: 'radius_m must be between 10 and 500' });
                 return;
             }
+            newRadius = r;
+            updates.push(`radius_m = $${idx++}`);
+            params.push(r);
             updates.push(`radius_meters = $${idx++}`);
             params.push(r);
         }
+
+        if (rawHardLimitM !== undefined) {
+            const hl = parseInt(rawHardLimitM, 10);
+            if (!Number.isInteger(hl) || hl < newRadius || hl > 2000) {
+                res.status(400).json({ message: `hard_limit_m must be >= radius (${newRadius}m) and <= 2000` });
+                return;
+            }
+            updates.push(`hard_limit_m = $${idx++}`);
+            params.push(hl);
+        } else if (inputRadius !== undefined) {
+            // Ensure hard_limit_m is still >= radius if hard_limit_m wasn't explicitly updated
+            const existingHl = Number(existing.hard_limit_m ?? 300);
+            if (existingHl < newRadius) {
+                updates.push(`hard_limit_m = $${idx++}`);
+                params.push(newRadius);
+            }
+        }
+
         if (max_accuracy_meters !== undefined) {
             const m = parseInt(max_accuracy_meters, 10);
             if (!Number.isInteger(m) || m < 1 || m > 500) {
@@ -182,22 +276,21 @@ export const updateClassroom = async (req: AuthRequest, res: Response): Promise<
             updates.push(`max_accuracy_meters = $${idx++}`);
             params.push(m);
         }
-        if (verification_policy !== undefined) {
-            if (!VALID_POLICIES.includes(verification_policy)) {
-                res.status(400).json({ message: `verification_policy must be one of: ${VALID_POLICIES.join(', ')}` });
-                return;
-            }
-            updates.push(`verification_policy = $${idx++}`);
-            params.push(verification_policy);
+        // Force policy to GPS_ONLY
+        updates.push(`verification_policy = 'GPS_ONLY'`);
+
+        const rawAcc = accuracy !== undefined && accuracy !== null ? accuracy : accuracy_meters;
+        if (rawAcc !== undefined) {
+            const parsedAcc = rawAcc !== null && String(rawAcc).trim() !== '' ? Number(rawAcc) : null;
+            updates.push(`accuracy_meters = $${idx++}`);
+            params.push(parsedAcc);
+            updates.push(`accuracy = $${idx++}`);
+            params.push(parsedAcc);
         }
+
         if (is_active !== undefined) {
             updates.push(`is_active = $${idx++}`);
             params.push(Boolean(is_active));
-        }
-
-        if (updates.length === 0) {
-            res.status(400).json({ message: 'No valid fields to update' });
-            return;
         }
 
         updates.push(`updated_at = NOW()`);
@@ -206,7 +299,7 @@ export const updateClassroom = async (req: AuthRequest, res: Response): Promise<
         const result = await pool.query(
             `UPDATE classrooms SET ${updates.join(', ')}
              WHERE id = $${idx}
-             RETURNING id, name, building, latitude, longitude, radius_meters, max_accuracy_meters, verification_policy, is_active, updated_at`,
+             RETURNING id, name, building, latitude, longitude, radius_m, radius_meters, hard_limit_m, max_accuracy_meters, verification_policy, is_active, updated_at, accuracy_meters, accuracy`,
             params
         );
 

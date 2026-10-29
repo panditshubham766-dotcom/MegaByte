@@ -70,7 +70,6 @@ export default function MobileStudentCapture() {
   const [errorMessage, setErrorMessage] = useState('');
   const [retryHint, setRetryHint] = useState('');
   const [success, setSuccess] = useState(false);
-  const [verificationToken, setVerificationToken] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -217,41 +216,119 @@ export default function MobileStudentCapture() {
 
   const fullCode = digits.join('');
 
-  const acquireLocation = async (): Promise<{ latitude: number; longitude: number; accuracy: number; timestamp: string } | null> => {
+  const acquirePreciseLocation = (): Promise<{ latitude: number; longitude: number; accuracy: number; timestamp: string }> => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      setGpsStatus({ status: 'DENIED', details: 'Geolocation not supported' });
-      return null;
+      return Promise.reject({
+        code: 'POSITION_UNAVAILABLE',
+        message: 'Turn on phone Location (GPS)',
+      });
     }
 
-    setGpsStatus({ status: 'PENDING', details: 'Acquiring GPS fix...' });
+    return new Promise((resolve, reject) => {
+      let bestReading: { pos: GeolocationPosition; accuracy: number } | null = null;
+      let watchId: number | null = null;
+      let timerId: any = null;
+      let settled = false;
 
-    return new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            accuracy: Math.round(pos.coords.accuracy),
-            timestamp: new Date(pos.timestamp || Date.now()).toISOString(),
-          };
-          setGpsStatus({
-            status: 'ACQUIRED',
-            accuracyM: loc.accuracy,
-            details: `GPS Fix (±${loc.accuracy}m)`,
-          });
-          resolve(loc);
-        },
-        (err) => {
-          console.warn('Geolocation error:', err);
-          if (err.code === 1) {
-            setGpsStatus({ status: 'DENIED', details: 'Location permission denied' });
-          } else {
-            setGpsStatus({ status: 'LOW_ACCURACY', details: 'Weak GPS signal' });
+      const cleanup = () => {
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+        }
+        if (timerId !== null) {
+          clearTimeout(timerId);
+          timerId = null;
+        }
+      };
+
+      const finish = (pos: GeolocationPosition) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const acc = Math.round(pos.coords.accuracy);
+        const loc = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: acc,
+          timestamp: new Date(pos.timestamp || Date.now()).toISOString(),
+        };
+        setGpsStatus({
+          status: 'ACQUIRED',
+          details: 'Location acquired',
+        });
+        resolve(loc);
+      };
+
+      const fail = (code: string, message: string) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject({ code, message });
+      };
+
+      // 15s timeout
+      timerId = setTimeout(() => {
+        if (settled) return;
+        if (bestReading) {
+          finish(bestReading.pos);
+        } else {
+          fail('TIMEOUT', 'Could not get a GPS fix, go near a window and retry');
+        }
+      }, 15000);
+
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            if (settled) return;
+
+            // Staleness judged strictly on phone by comparing position.timestamp with Date.now() (reject if older than 60s)
+            const rawTs = pos.timestamp;
+            const posTime = rawTs ? (rawTs < 1e11 ? rawTs * 1000 : rawTs) : Date.now();
+            if (Date.now() - posTime > 60000) {
+              return; // Stale reading, ignore
+            }
+
+            const acc = Math.round(pos.coords.accuracy);
+            setGpsStatus({
+              status: 'PENDING',
+              details: 'Getting precise location…',
+            });
+
+            if (!bestReading || acc < bestReading.accuracy) {
+              bestReading = { pos, accuracy: acc };
+            }
+
+            // Stop early when accuracy <= 20m
+            if (acc <= 20) {
+              finish(pos);
+            }
+          },
+          (err) => {
+            if (settled) return;
+            console.warn('Geolocation error:', err);
+            if (bestReading) {
+              finish(bestReading.pos);
+              return;
+            }
+            if (err.code === 1) {
+              fail('PERMISSION_DENIED', 'Tap the icon left of the address bar > Permissions > Location > Allow, make sure phone Location is on, then Try again');
+            } else if (err.code === 2) {
+              fail('POSITION_UNAVAILABLE', 'Turn on phone Location (GPS)');
+            } else if (err.code === 3) {
+              fail('TIMEOUT', 'Could not get a GPS fix, go near a window and retry');
+            } else {
+              fail('POSITION_UNAVAILABLE', 'Turn on phone Location (GPS)');
+            }
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 15000,
           }
-          resolve(null);
-        },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-      );
+        );
+      } catch {
+        fail('POSITION_UNAVAILABLE', 'Turn on phone Location (GPS)');
+      }
     });
   };
 
@@ -303,31 +380,70 @@ export default function MobileStudentCapture() {
     }
 
     if (videoRef.current && videoRef.current.paused) {
-      try {
-        await videoRef.current.play();
-      } catch (err) {
-        console.error('Error starting video play:', err);
-      }
+      videoRef.current.play().catch((err) => console.error('Error starting video play:', err));
     }
 
     setErrorMessage('');
     setErrorCode('');
     setRetryHint('');
+
+    // If navigator.permissions.query({name:'geolocation'}) says denied, show that help before trying
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+        if (perm.state === 'denied') {
+          setErrorCode('PERMISSION_DENIED');
+          setErrorMessage('Tap the icon left of the address bar > Permissions > Location > Allow, make sure phone Location is on, then Try again');
+          setRetryHint('Make sure phone Location is turned on and allowed in your browser.');
+          setOverallStatus('REJECTED');
+          setFlowStage('RESULT');
+          setSuccess(false);
+          setIsSubmitting(false);
+          return;
+        }
+      } catch {
+        // Query unsupported or threw, proceed directly
+      }
+    }
+
     setFlowStage('VERIFYING');
     setSubStep('PROBING_SENSORS');
     setOverallStatus('IN_PROGRESS');
     setProgressPercent(10);
     setIsSubmitting(true);
+    setGpsStatus({ status: 'PENDING', details: 'Getting precise location…' });
+
+    let clientLocation: { latitude: number; longitude: number; accuracy: number; timestamp: string };
+    try {
+      clientLocation = await acquirePreciseLocation();
+    } catch (locErr: any) {
+      setOverallStatus('REJECTED');
+      setFlowStage('RESULT');
+      setErrorCode(locErr.code || 'LOCATION_ERROR');
+      setErrorMessage(locErr.message || 'Turn on phone Location (GPS)');
+      setRetryHint(
+        locErr.code === 'PERMISSION_DENIED'
+          ? 'Make sure phone Location is on, then Try again'
+          : locErr.code === 'TIMEOUT'
+          ? 'Go near a window and retry'
+          : 'Turn on phone Location (GPS)'
+      );
+      if (locErr.code === 'PERMISSION_DENIED') {
+        setGpsStatus({ status: 'DENIED', details: locErr.message });
+      } else {
+        setGpsStatus({ status: 'LOW_ACCURACY', details: locErr.message });
+      }
+      setIsSubmitting(false);
+      return;
+    }
+
+    const clientWifi = await probeWifi();
+    setProgressPercent(20);
 
     const token = localStorage.getItem('token');
     const API_URL = import.meta.env.VITE_API_URL || '';
 
     try {
-      const clientLocation = await acquireLocation();
-      const clientWifi = await probeWifi();
-
-      setProgressPercent(20);
-
       let challengeRes: globalThis.Response;
       try {
         challengeRes = await fetch(`${API_URL}/api/attendance/challenge`, {
@@ -350,19 +466,33 @@ export default function MobileStudentCapture() {
 
       if (!challengeRes.ok) {
         setOverallStatus('REJECTED');
-        if (challengeData.code === 'LOCATION_REQUIRED' || challengeData.code === 'PERMISSION_DENIED') {
+        let userMsg = challengeData.message || 'Verification challenge failed.';
+        let userHint = challengeData.retryHint || '';
+
+        if (challengeData.code === 'INVALID_OR_EXPIRED_CODE') {
+          userMsg = challengeData.message || 'Code expired or wrong. Check the screen for the new code';
+          userHint = challengeData.retryHint || 'Check the screen for the new code';
+        } else if (challengeData.code === 'CODE_RATE_LIMITED') {
+          userMsg = challengeData.message || 'Too many wrong code attempts. Please wait before trying again.';
+          userHint = challengeData.retryHint || (challengeData.retryAfterSeconds ? `Wait ${challengeData.retryAfterSeconds}s before entering a new code.` : 'Please wait before trying again.');
+        } else if (challengeData.code === 'LOCATION_REQUIRED') {
+          userMsg = 'Location access required to verify attendance.';
+          userHint = challengeData.retryHint || 'Enable GPS and grant high-accuracy location permission.';
           setGpsStatus({ status: 'DENIED', details: 'Location access required' });
-        } else if (challengeData.code === 'OUTSIDE_CLASSROOM') {
-          setGpsStatus({ status: 'OUTSIDE', distanceM: challengeData.distanceMeters, details: challengeData.message });
-        } else if (challengeData.code === 'ACCURACY_TOO_LOW' || challengeData.code === 'STALE_LOCATION') {
-          setGpsStatus({ status: 'LOW_ACCURACY', details: challengeData.message });
+        } else if (challengeData.code === 'LOCATION_TOO_FAR' || challengeData.code === 'OUTSIDE_CLASSROOM') {
+          userMsg = 'You are too far from the classroom. Move closer to the faculty and try again.';
+          userHint = challengeData.retryHint || 'Move closer to the faculty and try again.';
+          setGpsStatus({ status: 'OUTSIDE', details: userMsg });
+        } else if (challengeData.code === 'LOCATION_INACCURATE' || challengeData.code === 'ACCURACY_TOO_LOW') {
+          userMsg = challengeData.message || 'GPS accuracy is too low.';
+          setGpsStatus({ status: 'LOW_ACCURACY', details: userMsg });
         } else if (challengeData.code === 'UNAPPROVED_ACCESS_POINT') {
           setWifiStatus({ status: 'UNAPPROVED', details: challengeData.message });
         }
         throw {
           code: challengeData.code || 'CHALLENGE_FAILED',
-          message: challengeData.message || 'Verification challenge failed.',
-          retryHint: challengeData.retryHint || '',
+          message: userMsg,
+          retryHint: userHint,
         };
       }
 
@@ -394,7 +524,7 @@ export default function MobileStudentCapture() {
         distanceM: locationDistanceM,
         accuracyM: locationAccuracyM,
         details: locationVerified
-          ? `In Classroom (${Math.round(locationDistanceM || 0)}m) • ±${Math.round(locationAccuracyM || 0)}m`
+          ? 'Location verified'
           : 'Geofence check bypassed',
       });
 
@@ -446,6 +576,9 @@ export default function MobileStudentCapture() {
       setFaceStatus({ status: 'MATCHING', details: 'Validating biometrics & presence...' });
       setProgressPercent(95);
 
+      // Send that reading with BOTH the challenge and submit requests
+      const submitLocation = clientLocation;
+
       let submitRes: globalThis.Response;
       try {
         submitRes = await fetch(`${API_URL}/api/attendance/submit`, {
@@ -458,6 +591,7 @@ export default function MobileStudentCapture() {
             code: fullCode,
             challengeId,
             frames,
+            location: submitLocation,
           }),
         });
       } catch {
@@ -479,6 +613,24 @@ export default function MobileStudentCapture() {
         let userHint = submitData.retryHint || 'Please try again.';
 
         switch (submitData.code) {
+          case 'LOCATION_REQUIRED':
+            userMsg = 'Location access required to verify attendance.';
+            userHint = submitData.retryHint || 'Enable GPS and grant high-accuracy location permission.';
+            setGpsStatus({ status: 'DENIED', details: 'Location access required' });
+            break;
+          case 'LOCATION_TOO_FAR':
+          case 'OUTSIDE_CLASSROOM': {
+            userMsg = 'You are too far from the classroom. Move closer to the faculty and try again.';
+            userHint = submitData.retryHint || 'Move closer to the faculty and try again.';
+            setGpsStatus({ status: 'OUTSIDE', details: userMsg });
+            break;
+          }
+          case 'LOCATION_INACCURATE':
+          case 'ACCURACY_TOO_LOW':
+            userMsg = submitData.message || 'GPS accuracy is too low.';
+            userHint = submitData.retryHint || 'Move closer to classroom windows or step outside briefly for a better GPS fix.';
+            setGpsStatus({ status: 'LOW_ACCURACY', details: userMsg });
+            break;
           case 'NO_FACE':
             userMsg = 'No face detected in video stream.';
             userHint = 'Ensure your face is centered and clearly lit.';
@@ -512,7 +664,6 @@ export default function MobileStudentCapture() {
 
       // Backend confirmed HTTP 201
       setProgressPercent(100);
-      setVerificationToken(submitData.verification_token);
       setFaceStatus({
         status: 'PASSED',
         matchScore: submitData.face_match_score,
@@ -546,7 +697,6 @@ export default function MobileStudentCapture() {
     setOverallStatus('UNVERIFIED');
     setFaceStatus({ status: 'IDLE' });
     setGpsStatus({ status: 'PENDING' });
-    setVerificationToken(null);
     setProgressPercent(0);
     setIsSubmitting(false);
     startCamera();
@@ -560,7 +710,7 @@ export default function MobileStudentCapture() {
   };
 
   return (
-    <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-28">
+    <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-bottom-nav">
       {/* Hidden canvas for un-mirrored frame capture */}
       <canvas ref={canvasRef} className="hidden" />
 
@@ -590,18 +740,18 @@ export default function MobileStudentCapture() {
           </button>
         </header>
 
-        {/* Assigned Classroom & Session Banner */}
+        {/* Assigned Subject & Session Banner */}
         {sessionInfo && (
           <div className="clay-card p-4 space-y-1">
             <div className="flex items-center justify-between">
               <span className="clay-chip clay-chip-pressed text-[9px]">
-                Assigned Classroom
+                {sessionInfo.subjectName || 'Subject'}
               </span>
               <span className="text-[11px] font-mono font-extrabold text-[#1B1640]">
                 Code: {sessionInfo.sessionCode}
               </span>
             </div>
-            <h3 className="text-sm font-extrabold text-[#1B1640]">{sessionInfo.classroomName}</h3>
+            <h3 className="text-sm font-extrabold text-[#1B1640]">{sessionInfo.subjectName || 'Subject'}</h3>
             <p className="text-[11px] font-semibold text-[#5B6190]">
               {sessionInfo.subjectName} {sessionInfo.className ? `• ${sessionInfo.className}` : ''}
             </p>
@@ -624,22 +774,16 @@ export default function MobileStudentCapture() {
                     Attendance Submitted Successfully
                   </h3>
                   <p className="text-xs font-semibold text-[#5B6190] max-w-xs mx-auto">
-                    GPS Geofence, Wi-Fi policy, and Biometric Liveness confirmed by server.
+                    Your face and location were verified.
                   </p>
                 </div>
 
-                {verificationToken && (
+                {faceStatus.matchScore !== undefined && (
                   <div className="p-3 clay-card-flat text-left space-y-1 text-xs">
-                    <div className="flex justify-between text-[#5B6190] font-mono text-[11px]">
-                      <span>Token:</span>
-                      <span className="text-emerald-600 font-bold">{verificationToken.slice(0, 16)}...</span>
+                    <div className="flex justify-between text-[#5B6190] text-[11px]">
+                      <span>Face Match:</span>
+                      <span className="font-bold text-[#1B1640]">{Math.round(faceStatus.matchScore * 100)}%</span>
                     </div>
-                    {faceStatus.matchScore !== undefined && (
-                      <div className="flex justify-between text-[#5B6190] text-[11px]">
-                        <span>Face Match:</span>
-                        <span className="font-bold text-[#1B1640]">{Math.round(faceStatus.matchScore * 100)}%</span>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -722,7 +866,7 @@ export default function MobileStudentCapture() {
             {subStep === 'PROBING_SENSORS' && (
               <div className="flex items-center gap-2 text-[#1B1640] font-bold text-xs">
                 <Loader2 className="h-4 w-4 animate-spin text-[#5B4BF0]" />
-                <span>Checking classroom GPS & policy...</span>
+                <span>Getting precise location…</span>
               </div>
             )}
 
@@ -912,12 +1056,12 @@ export default function MobileStudentCapture() {
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Checking Requirements...
+                    Getting precise location...
                   </>
                 ) : (
                   <>
                     <ShieldCheck className="h-4 w-4 mr-2" />
-                    Verify Presence & Check In
+                    Start face check
                   </>
                 )}
               </button>

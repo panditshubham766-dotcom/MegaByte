@@ -473,46 +473,17 @@ export function evaluateAllFactors(params: {
     }
 
     // 3. Presence Verification Check according to policy
+    // 3. Presence Verification Check: GPS distance only (no Wi-Fi fallback or OR-logic)
     if (sessionEligibility.classroomId) {
-        const policy = sessionEligibility.verificationPolicy;
-
         const gpsPassed = geofenceResult.verified;
-        const wifiPassed = wifiResult.verified;
 
-        let presencePassed = false;
-        let presenceError: { code: string; message: string; retryHint: string } | undefined;
+        if (!gpsPassed) {
+            const presenceError = geofenceResult.error || {
+                code: 'LOCATION_REQUIRED',
+                message: 'GPS classroom geofence verification failed.',
+                retryHint: 'Move inside the classroom and try again.'
+            };
 
-        switch (policy) {
-            case 'GPS_ONLY':
-                presencePassed = gpsPassed;
-                if (!gpsPassed) presenceError = geofenceResult.error;
-                break;
-
-            case 'WIFI_ONLY':
-                presencePassed = wifiPassed;
-                if (!wifiPassed) presenceError = wifiResult.error;
-                break;
-
-            case 'GPS_OR_WIFI':
-                presencePassed = gpsPassed || wifiPassed;
-                if (!presencePassed) {
-                    presenceError = {
-                        code: 'PRESENCE_CHECK_FAILED',
-                        message: `Neither GPS geofence nor approved Wi-Fi presence could be verified.`,
-                        retryHint: 'Move inside the classroom or connect to the classroom Wi-Fi network and try again.'
-                    };
-                }
-                break;
-
-            case 'GPS_AND_WIFI':
-                presencePassed = gpsPassed && wifiPassed;
-                if (!presencePassed) {
-                    presenceError = !gpsPassed ? geofenceResult.error : wifiResult.error;
-                }
-                break;
-        }
-
-        if (!presencePassed) {
             return {
                 studentIdentity,
                 sessionEligibility,
@@ -520,9 +491,9 @@ export function evaluateAllFactors(params: {
                 wifiVerification: wifiResult,
                 faceRecognition: faceResult,
                 overallStatus: 'FAILED',
-                errorCode: presenceError?.code || 'PRESENCE_CHECK_FAILED',
-                errorMessage: presenceError?.message || 'Presence verification failed.',
-                retryHint: presenceError?.retryHint
+                errorCode: presenceError.code,
+                errorMessage: presenceError.message,
+                retryHint: presenceError.retryHint
             };
         }
     }

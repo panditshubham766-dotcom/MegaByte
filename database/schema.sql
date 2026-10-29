@@ -45,9 +45,13 @@ CREATE TABLE classrooms (
     building VARCHAR(255),
     latitude DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90 AND 90),
     longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
-    radius_meters INT NOT NULL DEFAULT 100 CHECK (radius_meters BETWEEN 1 AND 5000),
-    max_accuracy_meters INT NOT NULL DEFAULT 30 CHECK (max_accuracy_meters BETWEEN 1 AND 500),
-    verification_policy VARCHAR(50) NOT NULL DEFAULT 'GPS_ONLY' CHECK (verification_policy IN ('GPS_ONLY', 'WIFI_ONLY', 'GPS_OR_WIFI', 'GPS_AND_WIFI')),
+    radius_m INT NOT NULL DEFAULT 100 CHECK (radius_m BETWEEN 10 AND 500),
+    radius_meters INT NOT NULL DEFAULT 100 CHECK (radius_meters BETWEEN 10 AND 500),
+    hard_limit_m INT NOT NULL DEFAULT 300 CHECK (hard_limit_m >= radius_m AND hard_limit_m <= 2000),
+    max_accuracy_meters INT NOT NULL DEFAULT 100 CHECK (max_accuracy_meters BETWEEN 1 AND 500),
+    accuracy_meters DOUBLE PRECISION,
+    accuracy DOUBLE PRECISION,
+    verification_policy VARCHAR(50) NOT NULL DEFAULT 'GPS_ONLY' CHECK (verification_policy = 'GPS_ONLY'),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -71,6 +75,16 @@ CREATE TABLE attendance_sessions (
     subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
     class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     classroom_id UUID REFERENCES classrooms(id) ON DELETE SET NULL,
+    location_mode TEXT NOT NULL DEFAULT 'STRICT' CHECK (location_mode IN ('STRICT', 'FLAG_ONLY', 'OFF')),
+    geo_lat DOUBLE PRECISION,
+    geo_lng DOUBLE PRECISION,
+    geo_radius_m INT,
+    geo_hard_limit_m INT DEFAULT 300,
+    anchor_lat DOUBLE PRECISION,
+    anchor_lng DOUBLE PRECISION,
+    anchor_accuracy_m REAL,
+    anchor_updated_at TIMESTAMP WITH TIME ZONE,
+    code_secret TEXT NOT NULL DEFAULT gen_random_uuid()::text,
     random_code VARCHAR(10) NOT NULL,
     status VARCHAR(50) NOT NULL CHECK (status IN ('ACTIVE', 'ENDED', 'EXPIRED')),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -90,6 +104,9 @@ CREATE TABLE attendance_records (
     location_lon DOUBLE PRECISION,
     location_accuracy_m REAL,
     location_distance_m REAL,
+    distance_m REAL,
+    geo_accuracy_m REAL,
+    location_status TEXT CHECK (location_status IS NULL OR location_status IN ('INSIDE', 'REVIEW', 'UNKNOWN')),
     location_verified BOOLEAN DEFAULT FALSE,
     location_ts TIMESTAMP WITH TIME ZONE,
     wifi_bssid VARCHAR(17),
@@ -201,5 +218,6 @@ ALTER TABLE auth_otps ENABLE ROW LEVEL SECURITY;
 
 CREATE UNIQUE INDEX users_lower_email_idx ON users (LOWER(email));
 CREATE UNIQUE INDEX users_student_id_unique_idx ON users (student_id) WHERE student_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_subjects_upper_code ON subjects (UPPER(code));
 
 

@@ -3,6 +3,14 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
 import { markExpired } from './session';
+import { computeStudentAttendance, isRecordPresent } from '../services/attendanceCalculator';
+import {
+    isRotatingCodeEnabled,
+    getCodeWindowSeconds,
+    liveCode,
+    checkCodeRateLimit,
+    recordCodeFailure
+} from '../services/rotatingCode';
 import { triggerDebouncedSubmissionExport, writeSessionExport } from '../services/sessionExport';
 import { updateSubjectSheet } from '../services/subjectSheet';
 import {
@@ -14,8 +22,12 @@ import {
     FaceError
 } from '../services/face';
 import {
+    evaluateLocation,
     validateLocation,
     validateClientLocationShape,
+    logGeofenceCheck,
+    getGeoRadiusM,
+    getGeoMaxAccuracyM,
     type ClientLocation,
     type ClassroomConfig
 } from '../services/geo';
@@ -51,33 +63,114 @@ export const requestChallenge = async (req: AuthRequest, res: Response): Promise
         const clientLocation = req.body.location ?? null;
         const clientWifi: ClientWifiEvidence | null = req.body.wifi ?? null;
 
-        // Find active and unexpired session (LEFT JOIN classroom for geofence and policy data)
-        const sessionRes = await pool.query(
-            `SELECT s.id, s.subject_id, s.class_id, s.classroom_id,
-                    sub.name              AS subject_name,
-                    cls.name              AS class_name,
-                    c.name                AS classroom_name,
-                    c.latitude            AS classroom_lat,
-                    c.longitude           AS classroom_lon,
-                    c.radius_meters,
-                    c.max_accuracy_meters,
-                    c.verification_policy
-             FROM attendance_sessions s
-             JOIN subjects sub ON sub.id = s.subject_id
-             JOIN classes cls ON cls.id = s.class_id
-             LEFT JOIN classrooms c ON c.id = s.classroom_id
-             WHERE s.random_code = $1
-               AND s.status = 'ACTIVE'
-               AND s.expires_at > NOW()`,
-            [sessionCode.toUpperCase()]
-        );
-
-        if (!sessionRes.rowCount || sessionRes.rowCount === 0) {
-            res.status(400).json({ message: 'Invalid or expired session code' });
+        // Rate limit wrong codes: max 5 failures per student per minute
+        const rateLimit = checkCodeRateLimit(studentId);
+        if (rateLimit.limited) {
+            res.status(429).json({
+                code: 'CODE_RATE_LIMITED',
+                message: `Too many incorrect attempts. Please try again in ${rateLimit.retryAfterSeconds} seconds.`,
+                retryAfterSeconds: rateLimit.retryAfterSeconds,
+                retryHint: `Please wait ${rateLimit.retryAfterSeconds} seconds before trying again.`
+            });
             return;
         }
 
-        const sessionRow = sessionRes.rows[0];
+        const cleanCode = (sessionCode || '').trim().toUpperCase();
+
+        // Resolve active, non-expired session
+        let sessionRow: any;
+        if (isRotatingCodeEnabled()) {
+            const sessionRes = await pool.query(
+                `SELECT s.id, s.subject_id, s.class_id, s.classroom_id, s.location_mode,
+                        s.code_secret, s.random_code,
+                        s.geo_lat, s.geo_lng, s.geo_radius_m, s.geo_hard_limit_m,
+                        s.anchor_lat, s.anchor_lng, s.anchor_accuracy_m, s.anchor_updated_at,
+                        sub.name              AS subject_name,
+                        cls.name              AS class_name,
+                        c.name                AS classroom_name,
+                        COALESCE(s.geo_lat, c.latitude) AS classroom_lat,
+                        COALESCE(s.geo_lng, c.longitude) AS classroom_lon,
+                        COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_m,
+                        COALESCE(s.geo_hard_limit_m, c.hard_limit_m, 300) AS hard_limit_m,
+                        COALESCE(c.max_accuracy_meters, 100) AS max_accuracy_meters,
+                        c.verification_policy
+                 FROM attendance_sessions s
+                 JOIN subjects sub ON sub.id = s.subject_id
+                 JOIN classes cls ON cls.id = s.class_id
+                 LEFT JOIN classrooms c ON c.id = s.classroom_id
+                 WHERE s.status = 'ACTIVE'
+                   AND s.expires_at > NOW()`
+            );
+
+            const nowMs = Date.now();
+            const windowSeconds = getCodeWindowSeconds();
+            const windowMs = windowSeconds * 1000;
+            const currentWindowIndex = Math.floor(nowMs / windowMs);
+            const previousWindowIndex = currentWindowIndex - 1;
+
+            const matchingSessions = sessionRes.rows.filter(s => {
+                const curr = liveCode(s.code_secret, currentWindowIndex);
+                const prev = liveCode(s.code_secret, previousWindowIndex);
+                return cleanCode === curr || cleanCode === prev;
+            });
+
+            if (matchingSessions.length === 0) {
+                recordCodeFailure(studentId);
+                res.status(422).json({
+                    code: 'INVALID_OR_EXPIRED_CODE',
+                    message: 'Code expired or wrong. Check the screen for the new code'
+                });
+                return;
+            }
+
+            if (matchingSessions.length > 1) {
+                res.status(409).json({
+                    code: 'CODE_COLLISION',
+                    message: 'Try again'
+                });
+                return;
+            }
+
+            sessionRow = matchingSessions[0];
+        } else {
+            const sessionRes = await pool.query(
+                `SELECT s.id, s.subject_id, s.class_id, s.classroom_id, s.location_mode,
+                        s.code_secret, s.random_code,
+                        s.geo_lat, s.geo_lng, s.geo_radius_m, s.geo_hard_limit_m,
+                        s.anchor_lat, s.anchor_lng, s.anchor_accuracy_m, s.anchor_updated_at,
+                        sub.name              AS subject_name,
+                        cls.name              AS class_name,
+                        c.name                AS classroom_name,
+                        COALESCE(s.geo_lat, c.latitude) AS classroom_lat,
+                        COALESCE(s.geo_lng, c.longitude) AS classroom_lon,
+                        COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_m,
+                        COALESCE(s.geo_hard_limit_m, c.hard_limit_m, 300) AS hard_limit_m,
+                        COALESCE(c.max_accuracy_meters, 100) AS max_accuracy_meters,
+                        c.verification_policy
+                 FROM attendance_sessions s
+                 JOIN subjects sub ON sub.id = s.subject_id
+                 JOIN classes cls ON cls.id = s.class_id
+                 LEFT JOIN classrooms c ON c.id = s.classroom_id
+                 WHERE s.random_code = $1
+                   AND s.status = 'ACTIVE'
+                   AND s.expires_at > NOW()`,
+                [cleanCode]
+            );
+
+            if (!sessionRes.rowCount || sessionRes.rowCount === 0) {
+                recordCodeFailure(studentId);
+                res.status(422).json({
+                    code: 'INVALID_OR_EXPIRED_CODE',
+                    message: 'Code expired or wrong. Check the screen for the new code'
+                });
+                return;
+            }
+
+            sessionRow = sessionRes.rows[0];
+        }
+
+        // Never expose or log code_secret in any response
+        delete sessionRow.code_secret;
         const sessionId: string = sessionRow.id;
 
         // Check if student is enrolled in the session's subject (if enrollments exist for this subject)
@@ -112,76 +205,43 @@ export const requestChallenge = async (req: AuthRequest, res: Response): Promise
         let wifiVerified = false;
         let wifiStatus: string = 'NOT_REQUIRED';
 
-        // Presence validation - enforced when session has a classroom_id.
-        // Sessions without a classroom_id have geofencing/Wi-Fi disabled (backward-compatible).
-        if (sessionRow.classroom_id) {
-            const policy: VerificationPolicy = sessionRow.verification_policy || 'GPS_ONLY';
+        // Presence validation - single source of truth via evaluateLocation
+        const evalResult = evaluateLocation(sessionRow, clientLocation);
 
-            // Query active approved access points for this classroom
-            const apRes = await pool.query(
-                `SELECT id, classroom_id, bssid, ssid, description, is_active
-                 FROM classroom_access_points
-                 WHERE classroom_id = $1 AND is_active = TRUE`,
-                [sessionRow.classroom_id]
+        if (!evalResult.valid) {
+            logGeofenceCheck(
+                sessionId,
+                getGeoRadiusM(),
+                evalResult.distance_m,
+                evalResult.geo_accuracy_m,
+                `FAILED (${evalResult.error?.code})`
             );
-            const approvedAps: ClassroomAccessPoint[] = apRes.rows;
+            res.status(evalResult.error?.statusCode || 422).json(evalResult.error);
+            return;
+        }
 
-            // 1. Evaluate GPS Geofence
-            let geoResult: { valid: boolean; distanceMeters?: number; error?: { code: string; message: string; retryHint: string } };
-            if (clientLocation) {
-                const shapeError = validateClientLocationShape(clientLocation);
-                if (shapeError) {
-                    res.status(400).json(shapeError.error);
-                    return;
-                }
+        logGeofenceCheck(
+            sessionId,
+            getGeoRadiusM(),
+            evalResult.distance_m,
+            evalResult.geo_accuracy_m,
+            `PASSED (${evalResult.location_status})`
+        );
 
-                const classroom: ClassroomConfig = {
-                    id:                  sessionRow.classroom_id,
-                    name:                sessionRow.classroom_name,
-                    latitude:            Number(sessionRow.classroom_lat),
-                    longitude:           Number(sessionRow.classroom_lon),
-                    radius_meters:       Number(sessionRow.radius_meters),
-                    max_accuracy_meters: Number(sessionRow.max_accuracy_meters),
-                };
+        if (clientLocation) {
+            const rawLat = clientLocation.lat !== undefined && clientLocation.lat !== null ? clientLocation.lat : clientLocation.latitude;
+            const rawLng = clientLocation.lng !== undefined && clientLocation.lng !== null ? clientLocation.lng : (clientLocation.longitude !== undefined && clientLocation.longitude !== null ? clientLocation.longitude : clientLocation.lon);
+            locLat = rawLat !== undefined && rawLat !== null && Number.isFinite(Number(rawLat)) ? Number(rawLat) : null;
+            locLon = rawLng !== undefined && rawLng !== null && Number.isFinite(Number(rawLng)) ? Number(rawLng) : null;
+            locTs = clientLocation.timestamp ? String(clientLocation.timestamp) : null;
+        }
+        locAcc = evalResult.geo_accuracy_m;
+        locDist = evalResult.distance_m;
+        locVerified = evalResult.location_status === 'INSIDE';
 
-                geoResult = validateLocation(clientLocation as ClientLocation, classroom);
-                if (geoResult.valid) {
-                    locLat = Number((clientLocation as ClientLocation).latitude);
-                    locLon = Number((clientLocation as ClientLocation).longitude);
-                    locAcc = Number((clientLocation as ClientLocation).accuracy);
-                    locDist = geoResult.distanceMeters ?? null;
-                    locVerified = true;
-                    locTs = (clientLocation as ClientLocation).timestamp;
-                }
-            } else {
-                geoResult = {
-                    valid: false,
-                    error: {
-                        code: 'LOCATION_REQUIRED',
-                        message: 'This session requires your location to verify classroom presence.',
-                        retryHint: 'Allow location access in your browser and try again.',
-                    }
-                };
-            }
-
-            // 2. Evaluate Wi-Fi BSSID Presence
-            const wifiResult = validateWifiPresence(clientWifi, approvedAps, policy);
-            wifiBssid = wifiResult.matchedBssid || (clientWifi?.bssid ? normalizeBssid(clientWifi.bssid) : null);
-            wifiSsid = clientWifi?.ssid?.trim() || null;
-            wifiVerified = wifiResult.verified;
-            wifiStatus = wifiResult.status;
-
-            // 3. Evaluate Combined Multi-Factor Presence Policy
-            const combined = evaluateCombinedPresence(policy, geoResult, wifiResult);
-            if (!combined.passed) {
-                res.status(403).json({
-                    code: combined.error!.code,
-                    message: combined.error!.message,
-                    retryHint: combined.error!.retryHint,
-                    policy: combined.policy,
-                });
-                return;
-            }
+        if (clientWifi?.bssid) {
+            wifiBssid = normalizeBssid(clientWifi.bssid);
+            wifiSsid = clientWifi.ssid?.trim() || null;
         }
 
         // Check if student already submitted
@@ -234,6 +294,10 @@ export const requestChallenge = async (req: AuthRequest, res: Response): Promise
             action: insertRes.rows[0].action,
             geofenced: Boolean(sessionRow.classroom_id),
             policy: sessionRow.verification_policy || 'GPS_ONLY',
+            location_mode: sessionRow.location_mode || 'STRICT',
+            location_status: evalResult.location_status,
+            distance_m: evalResult.distance_m,
+            geo_accuracy_m: evalResult.geo_accuracy_m,
             sessionCode: sessionCode.toUpperCase(),
             classroomName: sessionRow.classroom_name || 'Assigned Classroom',
             subjectName: sessionRow.subject_name || 'Current Subject',
@@ -279,26 +343,81 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             return;
         }
 
-        // Find the active session matching the session_code (including classroom data)
+        // The issued challenge is bound to that session, so /submit does NOT re-check the code
         const sessionRes = await pool.query(
-            `SELECT s.id, s.subject_id, s.class_id, s.classroom_id,
+            `SELECT s.id, s.subject_id, s.class_id, s.classroom_id, s.location_mode,
+                    s.geo_lat, s.geo_lng, s.geo_radius_m, s.geo_hard_limit_m,
+                    s.anchor_lat, s.anchor_lng, s.anchor_accuracy_m, s.anchor_updated_at,
                     c.name AS classroom_name,
+                    COALESCE(s.geo_lat, c.latitude) AS classroom_lat,
+                    COALESCE(s.geo_lng, c.longitude) AS classroom_lon,
+                    COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_m,
+                    COALESCE(s.geo_hard_limit_m, c.hard_limit_m, 300) AS hard_limit_m,
+                    COALESCE(c.max_accuracy_meters, 100) AS max_accuracy_meters,
                     c.verification_policy
-             FROM attendance_sessions s 
+             FROM liveness_challenges lc
+             JOIN attendance_sessions s ON s.id = lc.session_id
              LEFT JOIN classrooms c ON c.id = s.classroom_id
-             WHERE s.random_code = $1 
+             WHERE lc.id = $1
+               AND lc.student_id = $2
+               AND lc.used_at IS NULL
+               AND lc.expires_at > NOW()
                AND s.status = 'ACTIVE' 
                AND s.expires_at > NOW()`,
-            [sessionCode.toUpperCase()]
+            [challengeId, studentId]
         );
 
         if (sessionRes.rowCount === 0) {
-            res.status(400).json({ message: 'Invalid or expired session code' });
+            res.status(400).json({ code: 'CHALLENGE_INVALID', message: 'Invalid, expired, or already used challenge' });
             return;
         }
 
         const sessionRow = sessionRes.rows[0];
         const sessionId = sessionRow.id;
+
+        // Geofence enforcement at submit time: single source of truth via evaluateLocation
+        let submitLocLat: number | null = null;
+        let submitLocLon: number | null = null;
+        let submitLocAcc: number | null = null;
+        let submitLocDist: number | null = null;
+        let submitLocVerified = false;
+        let submitLocTs: string | null = null;
+        let submitLocationStatus: string | null = null;
+
+        const submitLocation = req.body.location;
+        const submitEvalResult = evaluateLocation(sessionRow, submitLocation);
+
+        if (!submitEvalResult.valid) {
+            logGeofenceCheck(
+                sessionId,
+                getGeoRadiusM(),
+                submitEvalResult.distance_m,
+                submitEvalResult.geo_accuracy_m,
+                `FAILED (${submitEvalResult.error?.code})`
+            );
+            res.status(submitEvalResult.error?.statusCode || 422).json(submitEvalResult.error);
+            return;
+        }
+
+        logGeofenceCheck(
+            sessionId,
+            getGeoRadiusM(),
+            submitEvalResult.distance_m,
+            submitEvalResult.geo_accuracy_m,
+            `PASSED (${submitEvalResult.location_status})`
+        );
+
+        if (submitLocation) {
+            const rawLat = submitLocation.lat !== undefined && submitLocation.lat !== null ? submitLocation.lat : submitLocation.latitude;
+            const rawLng = submitLocation.lng !== undefined && submitLocation.lng !== null ? submitLocation.lng : (submitLocation.longitude !== undefined && submitLocation.longitude !== null ? submitLocation.longitude : submitLocation.lon);
+            submitLocLat = rawLat !== undefined && rawLat !== null && Number.isFinite(Number(rawLat)) ? Number(rawLat) : null;
+            submitLocLon = rawLng !== undefined && rawLng !== null && Number.isFinite(Number(rawLng)) ? Number(rawLng) : null;
+            submitLocTs = submitLocation.timestamp ? String(submitLocation.timestamp) : null;
+        }
+        submitLocAcc = submitEvalResult.geo_accuracy_m;
+        submitLocDist = submitEvalResult.distance_m;
+        submitLocationStatus = submitEvalResult.location_status;
+        submitLocVerified = submitEvalResult.location_status === 'INSIDE';
 
         // Check if student already submitted
         const priorSubmission = await pool.query(
@@ -376,6 +495,8 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             res.status(400).json({ code: 'CHALLENGE_INVALID', message: 'Invalid, expired, or already used challenge' });
             return;
         }
+
+
 
         const requestedAction: 'TURN_LEFT' | 'TURN_RIGHT' = challengeRes.rows[0].action;
 
@@ -503,15 +624,15 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
         const verificationToken = 'vtok_' + crypto.randomBytes(24).toString('hex');
         const verificationBreakdown = {
             studentIdentity: { verified: true, studentId },
-            sessionEligibility: { verified: true, sessionId, classroomId: sessionRow.classroom_id, verificationPolicy: sessionRow.verification_policy || 'GPS_ONLY' },
+            sessionEligibility: { verified: true, sessionId, classroomId: sessionRow.classroom_id, verificationPolicy: 'GPS_ONLY' },
             geofenceValidation: {
-                required: Boolean(sessionRow.classroom_id && sessionRow.verification_policy !== 'WIFI_ONLY'),
-                verified: Boolean(challengeRow.location_verified),
-                distanceMeters: challengeRow.location_distance_m,
-                accuracyMeters: challengeRow.location_accuracy_m
+                required: Boolean(sessionRow.classroom_id),
+                verified: sessionRow.classroom_id ? (submitLocVerified && Boolean(challengeRow.location_verified)) : false,
+                distanceMeters: submitLocDist ?? challengeRow.location_distance_m,
+                accuracyMeters: submitLocAcc ?? challengeRow.location_accuracy_m
             },
             wifiVerification: {
-                required: Boolean(sessionRow.classroom_id && sessionRow.verification_policy !== 'GPS_ONLY'),
+                required: false,
                 verified: Boolean(challengeRow.wifi_verified),
                 bssid: challengeRow.wifi_bssid,
                 ssid: challengeRow.wifi_ssid,
@@ -542,7 +663,7 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
                 JSON.stringify(verificationBreakdown),
                 faceMatchScore,
                 livenessScore,
-                challengeRow.location_distance_m ?? null,
+                submitLocDist ?? challengeRow.location_distance_m ?? null,
                 challengeRow.wifi_verified ?? false
             ]
         );
@@ -553,9 +674,10 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             `INSERT INTO attendance_records (
                 session_id, student_id, status, photo_base64, face_match_score, liveness_score, submitted_at,
                 location_lat, location_lon, location_accuracy_m, location_distance_m, location_verified, location_ts,
+                distance_m, geo_accuracy_m, location_status,
                 wifi_bssid, wifi_ssid, wifi_verified, wifi_verification_status,
                 verification_session_id
-             ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+             ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
             [
                 sessionId,
                 studentId,
@@ -563,12 +685,15 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
                 frontalBase64,
                 faceMatchScore,
                 livenessScore,
-                challengeRow.location_lat ?? null,
-                challengeRow.location_lon ?? null,
-                challengeRow.location_accuracy_m ?? null,
-                challengeRow.location_distance_m ?? null,
-                challengeRow.location_verified ?? false,
-                challengeRow.location_ts ?? null,
+                submitLocLat ?? challengeRow.location_lat ?? null,
+                submitLocLon ?? challengeRow.location_lon ?? null,
+                submitLocAcc ?? challengeRow.location_accuracy_m ?? null,
+                submitLocDist ?? challengeRow.location_distance_m ?? null,
+                (submitLocVerified && Boolean(challengeRow.location_verified)),
+                submitLocTs ?? challengeRow.location_ts ?? null,
+                submitLocDist ?? challengeRow.location_distance_m ?? null,
+                submitLocAcc ?? challengeRow.location_accuracy_m ?? null,
+                submitLocationStatus,
                 challengeRow.wifi_bssid ?? null,
                 challengeRow.wifi_ssid ?? null,
                 challengeRow.wifi_verified ?? false,
@@ -604,6 +729,9 @@ export const submitAttendance = async (req: AuthRequest, res: Response): Promise
             message: 'Attendance submitted successfully',
             face_match_score: faceMatchScore,
             liveness_score: livenessScore,
+            location_status: submitLocationStatus,
+            distance_m: submitLocDist ?? challengeRow.location_distance_m ?? null,
+            geo_accuracy_m: submitLocAcc ?? challengeRow.location_accuracy_m ?? null,
             verification_token: verificationToken,
             verification_session_id: verificationSessionId,
             breakdown: verificationBreakdown
@@ -629,6 +757,9 @@ export const getPendingSubmissions = async (req: AuthRequest, res: Response): Pr
         // Fetch pending records for this session, joined with users
         const pendingRes = await pool.query(
             `SELECT a.id as record_id, u.name, u.student_id, a.photo_base64, a.status, a.face_match_score, a.liveness_score,
+                    COALESCE(a.distance_m, a.location_distance_m) AS distance_m,
+                    COALESCE(a.geo_accuracy_m, a.location_accuracy_m) AS geo_accuracy_m,
+                    a.location_status,
                     a.location_distance_m, a.location_accuracy_m, a.location_verified,
                     a.wifi_bssid, a.wifi_ssid, a.wifi_verified, a.wifi_verification_status
              FROM attendance_records a
@@ -856,9 +987,9 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
             const sessionsRes = await pool.query(
                 `SELECT id, created_at, status
                  FROM attendance_sessions
-                 WHERE subject_id = $1 AND status != 'ACTIVE' AND created_at >= $2
+                 WHERE subject_id = $1 AND status != 'ACTIVE'
                  ORDER BY created_at DESC`,
-                [sub.subject_id, sub.enrolled_at]
+                [sub.subject_id]
             );
 
             const sessions = sessionsRes.rows;
@@ -890,7 +1021,7 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
                 recordMap.set(r.session_id, r);
             }
 
-            let presentCount = 0;
+            const stats = computeStudentAttendance(sessionIds, (sid) => recordMap.get(sid)?.status);
             const sessionList = [];
 
             for (const sess of sessions) {
@@ -898,9 +1029,8 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
                 let statusDisplay = 'Absent';
 
                 if (rec) {
-                    if (rec.status === 'APPROVED') {
+                    if (isRecordPresent(rec.status)) {
                         statusDisplay = 'Present';
-                        presentCount++;
                     } else if (rec.status === 'REJECTED') {
                         statusDisplay = 'Rejected';
                     } else if (rec.status === 'PENDING') {
@@ -917,15 +1047,13 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
                 });
             }
 
-            const percentage = total > 0 ? Math.round((presentCount / total) * 100) : 0;
-
             result.push({
                 subject_id: sub.subject_id,
                 subject_name: sub.subject_name,
                 subject_code: sub.subject_code,
-                total,
-                present: presentCount,
-                percentage,
+                total: stats.total,
+                present: stats.present,
+                percentage: stats.percentage,
                 sessions: sessionList
             });
         }
@@ -1028,7 +1156,12 @@ export const approveAllSubmissions = async (req: AuthRequest, res: Response): Pr
             await client.query('BEGIN');
 
             const updateRes = await client.query(
-                `UPDATE attendance_records SET status='APPROVED', reviewed_at=NOW() WHERE session_id=$1 AND id = ANY($2::uuid[]) AND status='PENDING' RETURNING id`,
+                `UPDATE attendance_records
+                 SET status='APPROVED', reviewed_at=NOW()
+                 WHERE session_id=$1
+                   AND id = ANY($2::uuid[])
+                   AND status='PENDING'
+                 RETURNING id`,
                 [sessionId, uniqueRecordIds]
             );
 

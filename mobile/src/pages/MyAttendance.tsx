@@ -321,7 +321,7 @@ export default function MyAttendance() {
   // Sheet View Sub-screen
   if (selectedSubjectForSheet) {
     return (
-      <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-28">
+      <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-bottom-nav">
         <div className="w-full max-w-[360px] sm:max-w-xl mx-auto px-4 py-4 space-y-4">
           {/* Header Bar */}
           <div className="flex items-center justify-between clay-topbar px-4 py-2.5">
@@ -481,7 +481,7 @@ export default function MyAttendance() {
 
   // Main Records Screen
   return (
-    <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-28">
+    <div className="min-h-screen bg-transparent flex flex-col justify-between safe-pt pb-bottom-nav">
       <div className="w-full max-w-[360px] sm:max-w-md mx-auto px-4 py-4 space-y-4">
         {/* Top Header */}
         <header className="flex items-center justify-between clay-topbar px-4 py-2.5">

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit3, Download, RefreshCw, X, AlertCircle, Eye, LogOut, MapPin, Wifi } from 'lucide-react';
+import { ArrowLeft, Edit3, Download, RefreshCw, X, AlertCircle, Eye, LogOut } from 'lucide-react';
 
 interface AttendanceRow {
   student_id: string;
@@ -10,8 +10,11 @@ interface AttendanceRow {
   face_match_score?: number | null;
   liveness_score?: number | null;
   edit_reason?: string | null;
+  distance_m?: number | null;
+  geo_accuracy_m?: number | null;
   location_distance_m?: number | null;
   location_accuracy_m?: number | null;
+  location_status?: string | null;
   location_verified?: boolean | null;
   wifi_bssid?: string | null;
   wifi_ssid?: string | null;
@@ -19,11 +22,18 @@ interface AttendanceRow {
   wifi_verification_status?: string | null;
 }
 
+interface SessionSummary {
+  id: string;
+  subject_code?: string | null;
+  subject_name?: string | null;
+}
+
 export default function FacultyAttendance() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const [students, setStudents] = useState<AttendanceRow[]>([]);
+  const [sessionInfo, setSessionInfo] = useState<SessionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
@@ -34,6 +44,26 @@ export default function FacultyAttendance() {
   const [editReason, setEditReason] = useState('');
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    const fetchInfo = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const API_URL = import.meta.env.VITE_API_URL || '';
+        const res = await fetch(`${API_URL}/api/sessions/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const s = await res.json();
+          setSessionInfo(s);
+        }
+      } catch (err) {
+        console.error('Error fetching session info:', err);
+      }
+    };
+    fetchInfo();
+  }, [id]);
 
   const fetchAttendance = useCallback(async () => {
     if (!id) return;
@@ -232,6 +262,11 @@ export default function FacultyAttendance() {
                 <ArrowLeft className="h-3 w-3 mr-1" />
                 Dashboard
               </button>
+              {(sessionInfo?.subject_code || sessionInfo?.subject_name) && (
+                <span className="clay-chip clay-chip-lavender text-xs font-black">
+                  {sessionInfo.subject_code} {sessionInfo.subject_name ? `• ${sessionInfo.subject_name}` : ''}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => navigate(`/session/${id}`)}
@@ -269,7 +304,14 @@ export default function FacultyAttendance() {
         {/* Actions Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 clay-card p-4 sm:p-6">
           <div>
-            <h1 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Session Attendance Roster</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Session Attendance Roster</h1>
+              {(sessionInfo?.subject_code || sessionInfo?.subject_name) && (
+                <span className="clay-chip clay-chip-pressed text-xs font-bold">
+                  {sessionInfo.subject_code} - {sessionInfo.subject_name}
+                </span>
+              )}
+            </div>
             <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Manage and override student attendance records</p>
           </div>
 
@@ -377,29 +419,11 @@ export default function FacultyAttendance() {
                           : '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-xs">
-                        <div className="flex flex-col gap-1 items-start">
-                          {student.location_verified ? (
-                            <span className="clay-chip clay-chip-lavender text-[10px] flex items-center gap-1">
-                              <MapPin className="h-3 w-3 text-indigo-600" />
-                              <span>{student.location_distance_m !== null && student.location_distance_m !== undefined ? `${Math.round(student.location_distance_m)}m` : 'GPS In-Room'}</span>
-                            </span>
-                          ) : null}
-                          {student.wifi_verified ? (
-                            <span className="clay-chip clay-chip-success text-[10px] flex items-center gap-1" title={student.wifi_bssid || 'Verified Wi-Fi AP'}>
-                              <Wifi className="h-3 w-3 text-emerald-600" />
-                              <span>Wi-Fi AP</span>
-                            </span>
-                          ) : student.wifi_verification_status === 'UNAPPROVED_ACCESS_POINT' ? (
-                            <span className="clay-chip clay-chip-danger text-[10px] flex items-center gap-1" title={`Unapproved AP: ${student.wifi_bssid || ''}`}>
-                              <Wifi className="h-3 w-3" />
-                              <span>Wrong AP</span>
-                            </span>
-                          ) : null}
-                          {!student.location_verified && !student.wifi_verified && student.status ? (
-                            <span className="text-[10px] text-slate-400 font-semibold">Remote / None</span>
-                          ) : null}
-                          {!student.status ? '—' : null}
-                        </div>
+                        {student.status ? (
+                          <span className="text-[10px] text-emerald-700 font-bold">Verified</span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-semibold">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-xs text-[#5B5F8A] max-w-xs truncate" title={student.edit_reason || ''}>
                         {student.edit_reason ? (

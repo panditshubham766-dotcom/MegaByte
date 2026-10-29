@@ -38,6 +38,12 @@ interface HistoryData {
   students: StudentRow[];
 }
 
+interface FacultySubjectItem {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export default function FacultySubjectHistory() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -45,6 +51,7 @@ export default function FacultySubjectHistory() {
   const [data, setData] = useState<HistoryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [facultySubjects, setFacultySubjects] = useState<FacultySubjectItem[]>([]);
 
   // Master Sheet state
   const [isUploadingSheet, setIsUploadingSheet] = useState(false);
@@ -267,6 +274,35 @@ export default function FacultySubjectHistory() {
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const API_URL = import.meta.env.VITE_API_URL || '';
+        const res = await fetch(`${API_URL}/api/subjects`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const list = await res.json();
+          setFacultySubjects(list);
+        }
+      } catch (e) {
+        console.error('Failed to load subjects', e);
+      }
+    };
+    fetchSubjects();
+  }, []);
+
+  useEffect(() => {
+    if (id) {
+      try {
+        localStorage.setItem('last_used_subject_id', id);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [id]);
 
   const openEditModal = (student: StudentRow, sessionId: string, startedAt: string) => {
     const record = student.records[sessionId] || {
@@ -494,6 +530,27 @@ export default function FacultySubjectHistory() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {facultySubjects.length > 0 && (
+              <div className="flex items-center gap-2 mr-1">
+                <label htmlFor="subject-switcher" className="text-xs font-bold text-[#5B5F8A]">
+                  Subject:
+                </label>
+                <select
+                  id="subject-switcher"
+                  value={id}
+                  onChange={(e) => navigate(`/subjects/${e.target.value}/history`)}
+                  aria-label="Switch Subject"
+                  className="clay-input text-xs font-bold py-1.5 px-3 rounded-xl border border-[#D5D8E8] bg-white text-[#1B1640] cursor-pointer"
+                >
+                  {facultySubjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} - {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <input
               type="file"
               id="master-sheet-input"

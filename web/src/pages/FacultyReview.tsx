@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Check, X, ArrowLeft, RefreshCw, Download, Users, LogOut, AlertTriangle, AlertCircle, MapPin, Wifi } from 'lucide-react';
+import { Check, X, ArrowLeft, RefreshCw, Download, Users, LogOut, AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface PendingSubmission {
   record_id: string;
@@ -10,8 +10,11 @@ interface PendingSubmission {
   status: string;
   face_match_score?: number | null;
   liveness_score?: number | null;
+  distance_m?: number | null;
+  geo_accuracy_m?: number | null;
   location_distance_m?: number | null;
   location_accuracy_m?: number | null;
+  location_status?: string | null;
   location_verified?: boolean | null;
   wifi_bssid?: string | null;
   wifi_verified?: boolean | null;
@@ -25,6 +28,8 @@ interface SessionInfo {
   expires_at: string;
   ended_at?: string | null;
   server_now: string;
+  subject_code?: string | null;
+  subject_name?: string | null;
 }
 
 export default function FacultyReview() {
@@ -240,7 +245,12 @@ export default function FacultyReview() {
       setShowApproveAllModal(false);
       fetchPending();
       const count = typeof data.approved === 'number' ? data.approved : targetRecordIds.length;
-      setSuccessMessage(`Approved ${count} students`);
+      const skippedCount = submissions.length - count;
+      if (skippedCount > 0) {
+        setSuccessMessage(`Approved ${count} students. ${skippedCount} skipped, review manually`);
+      } else {
+        setSuccessMessage(`Approved ${count} students`);
+      }
       setTimeout(() => {
         setSuccessMessage('');
       }, 5000);
@@ -309,6 +319,11 @@ export default function FacultyReview() {
                 <ArrowLeft className="h-3 w-3 mr-1" />
                 Dashboard
               </button>
+              {(sessionInfo?.subject_code || sessionInfo?.subject_name) && (
+                <span className="clay-chip clay-chip-lavender text-xs font-black">
+                  {sessionInfo.subject_code} {sessionInfo.subject_name ? `• ${sessionInfo.subject_name}` : ''}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => navigate(`/session/${currentSessionId}`)}
@@ -473,18 +488,6 @@ export default function FacultyReview() {
                         {sub.face_match_score !== undefined && sub.face_match_score !== null && (
                           <span className="clay-chip clay-chip-pressed text-[10px]">
                             {Math.round(sub.face_match_score * 100)}%
-                          </span>
-                        )}
-                        {sub.location_verified && (
-                          <span className="clay-chip clay-chip-lavender text-[10px] flex items-center gap-1">
-                            <MapPin className="h-2.5 w-2.5 text-indigo-600" />
-                            <span>{sub.location_distance_m !== null && sub.location_distance_m !== undefined ? `${Math.round(sub.location_distance_m)}m` : 'In Room'}</span>
-                          </span>
-                        )}
-                        {sub.wifi_verified && (
-                          <span className="clay-chip clay-chip-success text-[10px] flex items-center gap-1">
-                            <Wifi className="h-2.5 w-2.5 text-emerald-600" />
-                            <span>Wi-Fi AP</span>
                           </span>
                         )}
                       </div>

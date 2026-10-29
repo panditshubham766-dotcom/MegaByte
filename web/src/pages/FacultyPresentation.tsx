@@ -15,6 +15,11 @@ interface SessionData {
   radius_meters?: number | null;
   max_accuracy_meters?: number | null;
   verification_policy?: 'GPS_ONLY' | 'WIFI_ONLY' | 'GPS_OR_WIFI' | 'GPS_AND_WIFI' | null;
+  anchor_lat?: number | null;
+  anchor_lng?: number | null;
+  anchor_accuracy_m?: number | null;
+  subject_code?: string | null;
+  subject_name?: string | null;
 }
 
 export default function FacultyPresentation() {
@@ -36,6 +41,34 @@ export default function FacultyPresentation() {
 
   // Store server clock offset: serverTime - clientLocalTime
   const serverOffsetRef = useRef<number>(0);
+
+  // Rotating session live code & progress
+  const [liveCode, setLiveCode] = useState<string>('');
+  const [rotationProgress, setRotationProgress] = useState<number>(100);
+
+  const fetchLiveCode = useCallback(async () => {
+    if (!id) return null;
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/sessions/${id}/live-code`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.code) {
+          setLiveCode(data.code);
+        }
+        return data.expires_in_ms as number;
+      }
+    } catch (err) {
+      console.error('Error fetching live code:', err);
+    }
+    return null;
+  }, [id]);
 
   const fetchSession = useCallback(async () => {
     if (!id) return;
@@ -158,6 +191,44 @@ export default function FacultyPresentation() {
     return () => clearInterval(interval);
   }, [session, fetchSession]);
 
+  useEffect(() => {
+    if (!session || session.status !== 'ACTIVE') {
+      return;
+    }
+
+    let timeoutId: any = null;
+    let animIntervalId: any = null;
+    let isCancelled = false;
+
+    const scheduleNextRotation = async () => {
+      if (isCancelled) return;
+      const expiresInMs = await fetchLiveCode();
+      if (isCancelled || expiresInMs == null) return;
+
+      const targetEnd = performance.now() + expiresInMs;
+
+      if (animIntervalId) clearInterval(animIntervalId);
+      animIntervalId = setInterval(() => {
+        const remaining = Math.max(0, targetEnd - performance.now());
+        const pct = Math.min(100, Math.max(0, (remaining / 30000) * 100));
+        setRotationProgress(pct);
+      }, 50);
+
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        scheduleNextRotation();
+      }, Math.max(100, expiresInMs));
+    };
+
+    scheduleNextRotation();
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (animIntervalId) clearInterval(animIntervalId);
+    };
+  }, [session?.status, fetchLiveCode]);
+
   const handleEndSession = async () => {
     if (!id) return;
     const confirmEnd = window.confirm('Are you sure you want to end this attendance session?');
@@ -266,7 +337,8 @@ export default function FacultyPresentation() {
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   const isOver = session.status !== 'ACTIVE';
-  const codeChars = (session.random_code || '').slice(0, 6).split('');
+  const displayedCode = liveCode || session.random_code || '';
+  const codeChars = (displayedCode + '      ').slice(0, 6).split('');
 
   // Total session seconds for progress bar (only if created_at and expires_at exist)
   const totalSeconds = session.created_at && session.expires_at
@@ -299,6 +371,11 @@ export default function FacultyPresentation() {
                 <ArrowLeft className="h-3 w-3 mr-1" />
                 Dashboard
               </button>
+              {(session.subject_code || session.subject_name) && (
+                <span className="clay-chip clay-chip-lavender text-xs font-black">
+                  {session.subject_code} {session.subject_name ? `• ${session.subject_name}` : ''}
+                </span>
+              )}
               <span className="clay-chip clay-chip-pressed text-xs">
                 Code
               </span>
@@ -358,23 +435,22 @@ export default function FacultyPresentation() {
               ATTENDANCE CODE
             </label>
 
-            {session?.classroom_id ? (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold mb-6">
-                <MapPin className="h-3.5 w-3.5" />
-                <span>Classroom: {session.classroom_name || 'Classroom'} • [{session.verification_policy || 'GPS_ONLY'}] Radius: {session.radius_meters || 100}m</span>
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-xs font-semibold mb-6">
-                <span>🌐 Presence Verification: Disabled (Remote)</span>
-              </div>
-            )}
+            {/* Session screen static location locked line */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold mb-6">
+              <MapPin className="h-3.5 w-3.5 text-emerald-600" />
+              <span>
+                {session.anchor_lat != null && session.anchor_lng != null
+                  ? `Location locked: ${session.anchor_lat.toFixed(6)}, ${session.anchor_lng.toFixed(6)}`
+                  : 'Location locked'}
+              </span>
+            </div>
 
             {/* 6 Code Boxes as raised clay tiles: equal width, monospace, very large, high contrast, readable from back of room */}
-            <div className="grid grid-cols-6 gap-2 sm:gap-3 md:gap-4 w-full max-w-xl mx-auto mb-6">
+            <div className="grid grid-cols-6 gap-2 sm:gap-3 md:gap-4 w-full max-w-xl mx-auto mb-4">
               {codeChars.map((char, index) => (
                 <div
                   key={index}
-                  className={`aspect-square flex items-center justify-center font-mono font-black text-3xl sm:text-5xl md:text-6xl transition-all ${
+                  className={`aspect-square flex items-center justify-center font-mono font-black text-3xl sm:text-5xl md:text-6xl transition-all duration-300 ease-in-out transform ${
                     isOver ? 'clay-tile-code-inactive' : 'clay-tile-code text-[#1B1640]'
                   }`}
                 >
@@ -382,6 +458,21 @@ export default function FacultyPresentation() {
                 </div>
               ))}
             </div>
+
+            {/* Rotation countdown bar matching rotation & hint */}
+            {!isOver && (
+              <div className="w-full max-w-xl mx-auto mb-6">
+                <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden shadow-inner">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#5B4BF0] to-[#7C3AED] rounded-full transition-all duration-75 ease-linear"
+                    style={{ width: `${rotationProgress}%` }}
+                  />
+                </div>
+                <p className="text-[11px] font-semibold text-[#5B5F8A] mt-1.5 text-center">
+                  Code refreshes every 30s
+                </p>
+              </div>
+            )}
 
             {/* Countdown in amber */}
             {!isOver ? (

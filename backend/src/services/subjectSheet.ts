@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import pool from '../config/db';
 import { uploadSubjectSheet, downloadSubjectSheet } from './storageHelper';
+import { computeStudentAttendance, isRecordPresent } from './attendanceCalculator';
 
 const subjectQueues = new Map<string, Promise<void>>();
 
@@ -132,23 +133,16 @@ async function performUpdateSubjectSheet(subjectId: string): Promise<void> {
     };
 
     // Populate rows
+    const sessionIds = sessions.map(s => s.id);
     for (const student of students) {
-        let presentCount = 0;
-        let studentTotal = 0;
+        const stats = computeStudentAttendance(sessionIds, (sid) => recordsMap.get(`${student.user_id}:${sid}`));
         const cells: string[] = [];
 
         for (const session of sessions) {
-            if (student.enrolled_at && new Date(session.created_at).getTime() < new Date(student.enrolled_at).getTime()) {
-                cells.push('-');
-                continue;
-            }
-
-            studentTotal++;
             const status = recordsMap.get(`${student.user_id}:${session.id}`);
             let text = 'A';
-            if (status === 'APPROVED') {
+            if (isRecordPresent(status)) {
                 text = 'P';
-                presentCount++;
             } else if (status === 'REJECTED') {
                 text = 'R';
             } else if (status === 'PENDING') {
@@ -159,15 +153,13 @@ async function performUpdateSubjectSheet(subjectId: string): Promise<void> {
             cells.push(text);
         }
 
-        const percentage = studentTotal > 0 ? Math.round((presentCount / studentTotal) * 100) : 0;
-
         const rowValues = [
             student.student_id || student.user_id,
             student.name,
             ...cells,
-            presentCount,
-            studentTotal,
-            `${percentage}%`
+            stats.present,
+            stats.total,
+            `${stats.percentage}%`
         ];
 
         const addedRow = worksheet.addRow(rowValues);

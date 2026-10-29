@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import pool from '../config/db';
 import { writeSessionExport, buildSessionWorkbook } from '../services/sessionExport';
 import { updateSubjectSheet } from '../services/subjectSheet';
+import { isRotatingCodeEnabled, getLiveCodeDetails } from '../services/rotatingCode';
 
 export const markExpired = async (): Promise<string[]> => {
     const res = await pool.query(
@@ -44,7 +45,7 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
     try {
         await markExpired();
 
-        const { durationSeconds, durationMinutes, classroom_id } = req.body;
+        const { durationSeconds, durationMinutes } = req.body;
         let totalSeconds: number;
 
         if (durationSeconds !== undefined) {
@@ -91,18 +92,29 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
             return;
         }
         
-        // Ensure dummy subject exists for this faculty (for rapid prototyping)
-        let subjectRes = await pool.query('SELECT id FROM subjects WHERE faculty_id = $1 LIMIT 1', [facultyId]);
-        let subjectId;
-        if (subjectRes.rowCount === 0) {
-            const insertSubject = await pool.query(
-                'INSERT INTO subjects (name, code, faculty_id) VALUES ($1, $2, $3) RETURNING id',
-                ['Introduction to Computer Science', 'CS101', facultyId]
-            );
-            subjectId = insertSubject.rows[0].id;
-        } else {
-            subjectId = subjectRes.rows[0].id;
+        // Require subject_id that belongs to logged-in faculty
+        const rawSubjectId = req.body.subject_id || req.body.subjectId;
+        if (!rawSubjectId) {
+            res.status(400).json({ message: 'subject_id is required' });
+            return;
         }
+
+        const subjectCheck = await pool.query(
+            'SELECT id, faculty_id, name, code FROM subjects WHERE id = $1',
+            [rawSubjectId]
+        );
+
+        if (subjectCheck.rowCount === 0) {
+            res.status(404).json({ message: 'Subject not found' });
+            return;
+        }
+
+        if (subjectCheck.rows[0].faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this subject' });
+            return;
+        }
+
+        const subjectId = rawSubjectId;
 
         // Ensure dummy class exists
         let classRes = await pool.query("SELECT id FROM classes WHERE name = 'Computer Science 1st Year' LIMIT 1");
@@ -117,28 +129,71 @@ export const createSession = async (req: AuthRequest, res: Response): Promise<vo
             classId = classRes.rows[0].id;
         }
 
-        // Resolve and validate classroom_id if provided (geofencing is optional)
-        let resolvedClassroomId: string | null = null;
-        if (classroom_id) {
-            const classroomRes = await pool.query(
-                `SELECT id FROM classrooms WHERE id = $1 AND is_active = TRUE`,
-                [classroom_id]
-            );
-            if (!classroomRes.rowCount || classroomRes.rowCount === 0) {
-                res.status(400).json({ message: 'Classroom not found or inactive' });
-                return;
+        // Optional classroom_id and location_mode (not required)
+        let targetClassroomId = req.body.classroom_id || req.body.classroomId || null;
+        let locationMode = 'STRICT';
+        if (req.body.location_mode || req.body.locationMode) {
+            const rawMode = (req.body.location_mode || req.body.locationMode).toString().toUpperCase();
+            if (['STRICT', 'FLAG_ONLY', 'OFF'].includes(rawMode)) {
+                locationMode = rawMode;
             }
-            resolvedClassroomId = classroom_id;
+        }
+
+        let resolvedClassroomId: string | null = null;
+        let geoLat: number | null = null;
+        let geoLng: number | null = null;
+        let geoRadiusM: number | null = null;
+        let geoHardLimitM: number | null = null;
+
+        if (targetClassroomId) {
+            const classroomRes = await pool.query(
+                `SELECT id, latitude, longitude, COALESCE(radius_m, radius_meters, 100) AS radius_m, COALESCE(hard_limit_m, 300) AS hard_limit_m
+                 FROM classrooms WHERE id = $1 AND is_active = TRUE`,
+                [targetClassroomId]
+            );
+            if (classroomRes.rowCount && classroomRes.rowCount > 0) {
+                const cRow = classroomRes.rows[0];
+                resolvedClassroomId = cRow.id;
+                geoLat = Number(cRow.latitude);
+                geoLng = Number(cRow.longitude);
+                geoRadiusM = Number(cRow.radius_m || 100);
+                geoHardLimitM = Number(cRow.hard_limit_m || 300);
+            }
+        }
+
+        const anchorLatRaw = req.body.anchor_lat ?? req.body.anchorLat;
+        const anchorLngRaw = req.body.anchor_lng ?? req.body.anchorLng;
+        const anchorAccRaw = req.body.anchor_accuracy_m ?? req.body.anchorAccuracyM ?? req.body.anchor_accuracy ?? req.body.accuracy;
+
+        const anchorLat = anchorLatRaw !== undefined && anchorLatRaw !== null ? Number(anchorLatRaw) : NaN;
+        const anchorLng = anchorLngRaw !== undefined && anchorLngRaw !== null ? Number(anchorLngRaw) : NaN;
+        const anchorAcc = anchorAccRaw !== undefined && anchorAccRaw !== null ? Number(anchorAccRaw) : NaN;
+
+        const isAnchorValid =
+            Number.isFinite(anchorLat) &&
+            Number.isFinite(anchorLng) &&
+            Number.isFinite(anchorAcc) &&
+            anchorLat >= -90 && anchorLat <= 90 &&
+            anchorLng >= -180 && anchorLng <= 180 &&
+            !(anchorLat === 0 && anchorLng === 0) &&
+            anchorAcc >= 0;
+
+        if (!isAnchorValid) {
+            res.status(422).json({
+                code: 'ANCHOR_REQUIRED',
+                message: 'Faculty laptop location anchor (anchor_lat, anchor_lng, anchor_accuracy_m) is required.'
+            });
+            return;
         }
 
         const randomCode = generateRandomCode();
 
         const insertSession = await pool.query(
             `INSERT INTO attendance_sessions 
-            (faculty_id, subject_id, class_id, random_code, status, created_at, expires_at, classroom_id) 
-            VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW() + make_interval(secs => $5), $6) 
-            RETURNING id, random_code, status, created_at, expires_at, ended_at, classroom_id, NOW() as server_now`,
-            [facultyId, subjectId, classId, randomCode, totalSeconds, resolvedClassroomId]
+            (faculty_id, subject_id, class_id, random_code, status, created_at, expires_at, classroom_id, location_mode, geo_lat, geo_lng, geo_radius_m, geo_hard_limit_m, anchor_lat, anchor_lng, anchor_accuracy_m, anchor_updated_at) 
+            VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW() + make_interval(secs => $5), $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()) 
+            RETURNING id, subject_id, random_code, status, created_at, expires_at, ended_at, classroom_id, location_mode, geo_lat, geo_lng, geo_radius_m, geo_hard_limit_m, anchor_lat, anchor_lng, anchor_accuracy_m, anchor_updated_at, NOW() as server_now`,
+            [facultyId, subjectId, classId, randomCode, totalSeconds, resolvedClassroomId, locationMode, geoLat, geoLng, geoRadiusM, geoHardLimitM, anchorLat, anchorLng, anchorAcc]
         );
 
         const newSession = insertSession.rows[0];
@@ -166,12 +221,21 @@ export const getActiveSession = async (req: AuthRequest, res: Response): Promise
         }
 
         const sessionRes = await pool.query(
-            `SELECT s.id, s.random_code, s.status, s.expires_at, s.ended_at, s.classroom_id,
+            `SELECT s.id, s.subject_id, s.random_code, s.status, s.expires_at, s.ended_at, s.classroom_id,
+                    s.location_mode, s.geo_lat, s.geo_lng, s.geo_radius_m, s.geo_hard_limit_m,
+                    s.anchor_lat, s.anchor_lng, s.anchor_accuracy_m, s.anchor_updated_at,
                     c.name AS classroom_name,
-                    c.radius_meters, c.max_accuracy_meters, c.verification_policy,
+                    sub.name AS subject_name, sub.code AS subject_code,
+                    COALESCE(s.geo_lat, c.latitude) AS latitude,
+                    COALESCE(s.geo_lng, c.longitude) AS longitude,
+                    COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_meters,
+                    COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_m,
+                    COALESCE(s.geo_hard_limit_m, c.hard_limit_m, 300) AS hard_limit_m,
+                    c.max_accuracy_meters, c.verification_policy,
                     NOW() as server_now 
              FROM attendance_sessions s
              LEFT JOIN classrooms c ON c.id = s.classroom_id
+             LEFT JOIN subjects sub ON sub.id = s.subject_id
              WHERE s.faculty_id = $1 AND s.status = 'ACTIVE' AND s.expires_at > NOW() 
              ORDER BY s.created_at DESC LIMIT 1`,
             [facultyId]
@@ -204,11 +268,20 @@ export const getSessionById = async (req: AuthRequest, res: Response): Promise<v
         const sessionRes = await pool.query(
             `SELECT s.id, s.faculty_id, s.subject_id, s.random_code, s.status,
                     s.expires_at, s.ended_at, s.created_at, s.classroom_id,
+                    s.location_mode, s.geo_lat, s.geo_lng, s.geo_radius_m, s.geo_hard_limit_m,
+                    s.anchor_lat, s.anchor_lng, s.anchor_accuracy_m, s.anchor_updated_at,
                     c.name AS classroom_name,
-                    c.radius_meters, c.max_accuracy_meters, c.verification_policy,
+                    sub.name AS subject_name, sub.code AS subject_code,
+                    COALESCE(s.geo_lat, c.latitude) AS latitude,
+                    COALESCE(s.geo_lng, c.longitude) AS longitude,
+                    COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_meters,
+                    COALESCE(s.geo_radius_m, c.radius_m, c.radius_meters, 100) AS radius_m,
+                    COALESCE(s.geo_hard_limit_m, c.hard_limit_m, 300) AS hard_limit_m,
+                    c.max_accuracy_meters, c.verification_policy,
                     NOW() as server_now
              FROM attendance_sessions s
              LEFT JOIN classrooms c ON c.id = s.classroom_id
+             LEFT JOIN subjects sub ON sub.id = s.subject_id
              WHERE s.id = $1`,
             [id]
         );
@@ -382,8 +455,11 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
                 a.face_match_score,
                 a.liveness_score,
                 a.edit_reason,
+                COALESCE(a.distance_m, a.location_distance_m) AS distance_m,
+                COALESCE(a.geo_accuracy_m, a.location_accuracy_m) AS geo_accuracy_m,
                 a.location_distance_m,
                 a.location_accuracy_m,
+                a.location_status,
                 a.location_verified,
                 a.wifi_bssid,
                 a.wifi_verified,
@@ -409,8 +485,11 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
                     a.face_match_score,
                     a.liveness_score,
                     a.edit_reason,
+                    COALESCE(a.distance_m, a.location_distance_m) AS distance_m,
+                    COALESCE(a.geo_accuracy_m, a.location_accuracy_m) AS geo_accuracy_m,
                     a.location_distance_m,
                     a.location_accuracy_m,
+                    a.location_status,
                     a.location_verified,
                     a.wifi_bssid,
                     a.wifi_verified,
@@ -432,9 +511,12 @@ export const getSessionAttendance = async (req: AuthRequest, res: Response): Pro
             face_match_score: r.face_match_score !== null && r.face_match_score !== undefined ? Number(r.face_match_score) : null,
             liveness_score: r.liveness_score !== null && r.liveness_score !== undefined ? Number(r.liveness_score) : null,
             edit_reason: r.edit_reason || null,
-            location_distance_m: r.location_distance_m !== null && r.location_distance_m !== undefined ? Number(r.location_distance_m) : null,
-            location_accuracy_m: r.location_accuracy_m !== null && r.location_accuracy_m !== undefined ? Number(r.location_accuracy_m) : null,
-            location_verified: Boolean(r.location_verified),
+            distance_m: r.distance_m !== null && r.distance_m !== undefined ? Number(r.distance_m) : null,
+            geo_accuracy_m: r.geo_accuracy_m !== null && r.geo_accuracy_m !== undefined ? Number(r.geo_accuracy_m) : null,
+            location_status: r.location_status || (r.location_verified ? 'INSIDE' : null),
+            location_distance_m: r.distance_m !== null && r.distance_m !== undefined ? Number(r.distance_m) : (r.location_distance_m !== null && r.location_distance_m !== undefined ? Number(r.location_distance_m) : null),
+            location_accuracy_m: r.geo_accuracy_m !== null && r.geo_accuracy_m !== undefined ? Number(r.geo_accuracy_m) : (r.location_accuracy_m !== null && r.location_accuracy_m !== undefined ? Number(r.location_accuracy_m) : null),
+            location_verified: Boolean(r.location_verified || r.location_status === 'INSIDE'),
             wifi_bssid: r.wifi_bssid || null,
             wifi_verified: Boolean(r.wifi_verified),
             wifi_verification_status: r.wifi_verification_status || 'NOT_REQUIRED'
@@ -596,6 +678,61 @@ export const deleteSession = async (req: AuthRequest, res: Response): Promise<vo
         });
     } catch (error) {
         console.error('Error deleting session:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getSessionLiveCode = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await markExpired();
+
+        const facultyId = req.user?.id;
+        const { id } = req.params;
+
+        if (!facultyId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const sessionRes = await pool.query(
+            `SELECT id, faculty_id, random_code, code_secret, status, expires_at
+             FROM attendance_sessions
+             WHERE id = $1`,
+            [id]
+        );
+
+        if (sessionRes.rowCount === 0) {
+            res.status(404).json({ message: 'Session not found' });
+            return;
+        }
+
+        const session = sessionRes.rows[0];
+        if (session.faculty_id !== facultyId) {
+            res.status(403).json({ message: 'Forbidden: You do not own this session' });
+            return;
+        }
+
+        if (session.status !== 'ACTIVE' || new Date(session.expires_at).getTime() <= Date.now()) {
+            res.status(409).json({ message: 'Session is not active' });
+            return;
+        }
+
+        if (!isRotatingCodeEnabled()) {
+            const expiresInMs = Math.max(0, new Date(session.expires_at).getTime() - Date.now());
+            res.status(200).json({
+                code: session.random_code,
+                expires_in_ms: expiresInMs
+            });
+            return;
+        }
+
+        const { code, expires_in_ms } = getLiveCodeDetails(session.code_secret);
+        res.status(200).json({
+            code,
+            expires_in_ms
+        });
+    } catch (error) {
+        console.error('Error fetching live code:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };

@@ -1,40 +1,89 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Play, History, X, MapPin, Plus } from 'lucide-react';
+import { LogOut, Play, History, X, MapPin, RefreshCw, Plus, Edit2, Trash2, BookOpen, AlertTriangle } from 'lucide-react';
+import { laptopTracker, type LaptopReading } from '../services/laptopLocationTracker';
+
+interface SubjectItem {
+  id: string;
+  code: string;
+  name: string;
+  session_count: number;
+}
 
 export default function FacultyDashboard() {
+  const [lockedReading, setLockedReading] = useState<LaptopReading | null>(laptopTracker.lockedReading);
+  const [trackerState, setTrackerState] = useState({
+    isLocating: laptopTracker.isLocating,
+    isLocked: laptopTracker.isLocked,
+    error: laptopTracker.error,
+    permissionDenied: laptopTracker.permissionDenied,
+    timeoutOccurred: laptopTracker.timeoutOccurred,
+  });
   const [presetSeconds, setPresetSeconds] = useState(300);
   const [isCustom, setIsCustom] = useState(false);
   const [customMin, setCustomMin] = useState('');
   const [customSec, setCustomSec] = useState('');
   const [loading, setLoading] = useState(false);
-  const [subjects, setSubjects] = useState<{ id: string; code: string; name: string }[]>([]);
-  const [showSubjectPicker, setShowSubjectPicker] = useState(false);
-  const [classrooms, setClassrooms] = useState<{
-    id: string;
-    name: string;
-    building: string | null;
-    latitude: number;
-    longitude: number;
-    radius_meters: number;
-    max_accuracy_meters: number;
-    verification_policy?: 'GPS_ONLY' | 'WIFI_ONLY' | 'GPS_OR_WIFI' | 'GPS_AND_WIFI';
-  }[]>([]);
-  const [selectedClassroomId, setSelectedClassroomId] = useState<string>('');
-  const [showAddClassroomModal, setShowAddClassroomModal] = useState(false);
-  const [newRoomName, setNewRoomName] = useState('');
-  const [newBuilding, setNewBuilding] = useState('');
-  const [newLat, setNewLat] = useState('');
-  const [newLon, setNewLon] = useState('');
-  const [newRadius, setNewRadius] = useState('100');
-  const [newAccuracy, setNewAccuracy] = useState('30');
-  const [newPolicy, setNewPolicy] = useState<'GPS_ONLY' | 'WIFI_ONLY' | 'GPS_OR_WIFI' | 'GPS_AND_WIFI'>('GPS_ONLY');
-  const [newBssid, setNewBssid] = useState('');
-  const [newSsid, setNewSsid] = useState('');
-  const [classroomError, setClassroomError] = useState('');
-  const [savingClassroom, setSavingClassroom] = useState(false);
-  const [locatingDevice, setLocatingDevice] = useState(false);
+
+  // Subject management state
+  const [subjects, setSubjects] = useState<SubjectItem[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
+
+  // Add Subject Modal state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addCode, setAddCode] = useState('');
+  const [addName, setAddName] = useState('');
+  const [addError, setAddError] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+
+  // Rename Subject Modal state
+  const [editingSubject, setEditingSubject] = useState<SubjectItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editError, setEditError] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Delete Subject Modal state
+  const [deletingSubject, setDeletingSubject] = useState<SubjectItem | null>(null);
+  const [deleteConfirmCode, setDeleteConfirmCode] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const navigate = useNavigate();
+
+  const fetchSubjects = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_URL}/api/subjects`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data: SubjectItem[] = await response.json();
+        setSubjects(data);
+        if (data.length > 0) {
+          let remembered = '';
+          try {
+            remembered = localStorage.getItem('last_used_subject_id') || '';
+          } catch {}
+
+          if (remembered && data.some((s) => s.id === remembered)) {
+            setSelectedSubjectId(remembered);
+          } else {
+            setSelectedSubjectId(data[0].id);
+            try {
+              localStorage.setItem('last_used_subject_id', data[0].id);
+            } catch {}
+          }
+        } else {
+          setSelectedSubjectId('');
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching subjects:', e);
+    }
+  };
 
   useEffect(() => {
     const checkActiveSession = async () => {
@@ -55,56 +104,47 @@ export default function FacultyDashboard() {
       }
     };
 
-    const fetchSubjects = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const API_URL = import.meta.env.VITE_API_URL || '';
-        const response = await fetch(`${API_URL}/api/subjects`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setSubjects(data);
-        }
-      } catch (e) {
-        console.error('Error fetching subjects:', e);
-      }
-    };
-
-    const fetchClassrooms = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const API_URL = import.meta.env.VITE_API_URL || '';
-        const response = await fetch(`${API_URL}/api/classrooms`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setClassrooms(data);
-          if (data.length > 0 && !selectedClassroomId) {
-            setSelectedClassroomId(data[0].id);
-          }
-        }
-      } catch (e) {
-        console.error('Error fetching classrooms:', e);
-      }
-    };
-
     checkActiveSession();
     fetchSubjects();
-    fetchClassrooms();
-
   }, [navigate]);
 
+  useEffect(() => {
+    laptopTracker.startLock();
+    const unsub = laptopTracker.subscribe(() => {
+      setLockedReading(laptopTracker.lockedReading);
+      setTrackerState({
+        isLocating: laptopTracker.isLocating,
+        isLocked: laptopTracker.isLocked,
+        error: laptopTracker.error,
+        permissionDenied: laptopTracker.permissionDenied,
+        timeoutOccurred: laptopTracker.timeoutOccurred,
+      });
+    });
+    return () => {
+      unsub();
+      laptopTracker.stop();
+    };
+  }, []);
+
   const handleSubjectHistory = () => {
-    if (subjects.length === 1) {
-      navigate(`/subjects/${subjects[0].id}/history`);
-    } else if (subjects.length > 1) {
-      setShowSubjectPicker(true);
-    } else {
-      alert('No subjects found for this faculty.');
+    if (subjects.length === 0) {
+      alert('Add a subject first.');
+      return;
+    }
+    let targetId = selectedSubjectId;
+    try {
+      const stored = localStorage.getItem('last_used_subject_id');
+      if (stored && subjects.some((s) => s.id === stored)) {
+        targetId = stored;
+      }
+    } catch {}
+
+    if (!targetId && subjects.length > 0) {
+      targetId = subjects[0].id;
+    }
+
+    if (targetId) {
+      navigate(`/subjects/${targetId}/history`);
     }
   };
 
@@ -130,6 +170,16 @@ export default function FacultyDashboard() {
   };
 
   const handleCreateSession = async () => {
+    const reading = lockedReading || laptopTracker.lockedReading;
+    if (!reading) {
+      alert('Laptop location reading is required to start session.');
+      return;
+    }
+    if (!selectedSubjectId) {
+      alert('Please select a subject to start the session.');
+      return;
+    }
+
     setLoading(true);
     try {
       const chosenSeconds = isCustom ? (minVal * 60 + secVal) : presetSeconds;
@@ -141,7 +191,13 @@ export default function FacultyDashboard() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ durationSeconds: chosenSeconds })
+        body: JSON.stringify({
+          durationSeconds: chosenSeconds,
+          anchor_lat: reading.lat,
+          anchor_lng: reading.lng,
+          anchor_accuracy_m: reading.accuracy,
+          subject_id: selectedSubjectId
+        })
       });
 
       const data = await response.json();
@@ -153,6 +209,10 @@ export default function FacultyDashboard() {
         throw new Error(data.message || 'Failed to create session');
       }
 
+      try {
+        localStorage.setItem('last_used_subject_id', selectedSubjectId);
+      } catch {}
+
       navigate(`/session/${data.id}`);
     } catch (error: any) {
       console.error(error);
@@ -162,72 +222,169 @@ export default function FacultyDashboard() {
     }
   };
 
-
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setClassroomError('Geolocation is not supported by your browser');
-      return;
-    }
-    setLocatingDevice(true);
-    setClassroomError('');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setNewLat(pos.coords.latitude.toFixed(6));
-        setNewLon(pos.coords.longitude.toFixed(6));
-        setLocatingDevice(false);
-      },
-      (err) => {
-        setLocatingDevice(false);
-        setClassroomError(`Location error: ${err.message}`);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+  // Add Subject Handlers
+  const handleOpenAddModal = () => {
+    setAddCode('');
+    setAddName('');
+    setAddError('');
+    setShowAddModal(true);
   };
 
-  const handleAddClassroom = async (e: React.FormEvent) => {
+  const handleSubmitAddSubject = async (e: React.FormEvent) => {
     e.preventDefault();
-    setClassroomError('');
-    setSavingClassroom(true);
+    const cleanCode = addCode.trim().toUpperCase();
+    const cleanName = addName.trim();
+
+    if (!/^[A-Z0-9]{2,12}$/.test(cleanCode)) {
+      setAddError('Subject code must be 2-12 letters and digits only');
+      return;
+    }
+    if (cleanName.length < 2 || cleanName.length > 80) {
+      setAddError('Subject name must be between 2 and 80 characters');
+      return;
+    }
+
+    setIsAdding(true);
+    setAddError('');
+
     try {
       const token = localStorage.getItem('token');
       const API_URL = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${API_URL}/api/classrooms`, {
+      const res = await fetch(`${API_URL}/api/subjects`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          name: newRoomName.trim(),
-          building: newBuilding.trim() || undefined,
-          latitude: parseFloat(newLat),
-          longitude: parseFloat(newLon),
-          radius_meters: parseInt(newRadius, 10) || 100,
-          max_accuracy_meters: parseInt(newAccuracy, 10) || 30,
-          verification_policy: newPolicy,
-          bssid: newBssid.trim() || undefined,
-          ssid: newSsid.trim() || undefined
-        })
+        body: JSON.stringify({ code: cleanCode, name: cleanName })
       });
 
-      const data = await res.json();
+      const resData = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to create classroom');
+        setAddError(resData.message || (resData.code === 'SUBJECT_CODE_TAKEN' ? 'Subject code already taken' : 'Failed to add subject'));
+        return;
       }
 
-      setClassrooms(prev => [data, ...prev]);
-      setSelectedClassroomId(data.id);
-      setShowAddClassroomModal(false);
-      setNewRoomName('');
-      setNewBuilding('');
-      setNewLat('');
-      setNewLon('');
-      setNewBssid('');
-      setNewSsid('');
+      setShowAddModal(false);
+      setAddCode('');
+      setAddName('');
+      await fetchSubjects();
+      setSelectedSubjectId(resData.id);
+      try {
+        localStorage.setItem('last_used_subject_id', resData.id);
+      } catch {}
     } catch (err: any) {
-      setClassroomError(err.message || 'Error saving classroom');
+      setAddError(err.message || 'Error creating subject');
     } finally {
-      setSavingClassroom(false);
+      setIsAdding(false);
+    }
+  };
+
+  // Rename Subject Handlers
+  const handleOpenRenameModal = (sub: SubjectItem) => {
+    setEditingSubject(sub);
+    setEditName(sub.name);
+    setEditError('');
+  };
+
+  const handleSubmitRenameSubject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSubject) return;
+
+    const cleanName = editName.trim();
+    if (cleanName.length < 2 || cleanName.length > 80) {
+      setEditError('Subject name must be between 2 and 80 characters');
+      return;
+    }
+
+    setIsEditing(true);
+    setEditError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_URL}/api/subjects/${editingSubject.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name: cleanName })
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        setEditError(resData.message || 'Failed to rename subject');
+        return;
+      }
+
+      setEditingSubject(null);
+      setEditName('');
+      await fetchSubjects();
+    } catch (err: any) {
+      setEditError(err.message || 'Error renaming subject');
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  // Delete Subject Handlers
+  const handleOpenDeleteModal = (sub: SubjectItem) => {
+    setDeletingSubject(sub);
+    setDeleteConfirmCode('');
+    setDeleteError('');
+  };
+
+  const handleConfirmDeleteSubject = async () => {
+    if (!deletingSubject) return;
+
+    if (deletingSubject.session_count > 0) {
+      if (deleteConfirmCode.trim().toUpperCase() !== deletingSubject.code.toUpperCase()) {
+        setDeleteError('Please type the exact subject code to confirm.');
+        return;
+      }
+    }
+
+    setIsDeleting(true);
+    setDeleteError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_URL}/api/subjects/${deletingSubject.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ confirm_code: deleteConfirmCode.trim() })
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        if (resData.code === 'SUBJECT_HAS_ACTIVE_SESSION') {
+          setDeleteError('End the live session first');
+        } else {
+          setDeleteError(resData.message || 'Failed to delete subject');
+        }
+        return;
+      }
+
+      const deletedId = deletingSubject.id;
+      setDeletingSubject(null);
+      setDeleteConfirmCode('');
+
+      try {
+        if (localStorage.getItem('last_used_subject_id') === deletedId) {
+          localStorage.removeItem('last_used_subject_id');
+        }
+      } catch {}
+
+      await fetchSubjects();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Error deleting subject');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -280,15 +437,63 @@ export default function FacultyDashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto flex flex-col justify-center">
-        <div className="clay-card p-6 sm:p-10 max-w-xl w-full mx-auto">
-          <div className="mb-6 text-center sm:text-left">
-            <h2 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Create Attendance Session</h2>
-            <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Configure session length and display code for students</p>
-          </div>
+      {/* Main Content: Two columns on desktop */}
+      <main className="flex-1 max-w-7xl w-full mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Left Column: Create Attendance Session */}
+          <div className="lg:col-span-7 clay-card p-6 sm:p-8 space-y-6">
+            <div className="text-center sm:text-left">
+              <h2 className="text-2xl font-extrabold text-[#1B1640] tracking-tight">Create Attendance Session</h2>
+              <p className="text-xs font-semibold text-[#5B5F8A] mt-1">Configure subject, duration and start check-in</p>
+            </div>
 
-          <div className="space-y-6">
+            {/* Subject Selector */}
+            <div className="space-y-2">
+              <label className="label-clay block">
+                SUBJECT
+              </label>
+              {subjects.length > 0 ? (
+                <div className="relative">
+                  <select
+                    value={selectedSubjectId}
+                    onChange={(e) => {
+                      const newId = e.target.value;
+                      setSelectedSubjectId(newId);
+                      try {
+                        localStorage.setItem('last_used_subject_id', newId);
+                      } catch {}
+                    }}
+                    className="w-full px-4 py-3 clay-input text-sm font-bold text-[#1B1640] rounded-2xl bg-white/70 appearance-none pr-10 cursor-pointer"
+                  >
+                    {subjects.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code} - {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#5B5F8A]">
+                    <BookOpen className="h-4 w-4" />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs flex items-center justify-between">
+                  <div>
+                    <p className="font-extrabold text-amber-900">Add a subject first</p>
+                    <p className="text-amber-700 font-semibold mt-0.5">You need at least one subject to create a session</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddModal}
+                    className="px-3 py-1.5 rounded-full clay-btn clay-btn-primary text-xs font-extrabold shrink-0 ml-3"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Add Subject
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Duration selector */}
             <div>
               <label className="label-clay block mb-3">
                 SESSION DURATION
@@ -385,49 +590,43 @@ export default function FacultyDashboard() {
               )}
             </div>
 
-            {/* Classroom Geofencing Configuration */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="label-clay block flex items-center">
-                  <MapPin className="h-4 w-4 mr-1.5 text-[#5B4BF0]" />
-                  Classroom Geofence
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowAddClassroomModal(true)}
-                  className="clay-chip clay-chip-selectable text-[11px] font-bold"
-                >
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add Classroom
-                </button>
+            {/* Laptop Location Locked Panel */}
+            <div className="p-4 rounded-2xl bg-white/80 border border-slate-200/80 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#1B1640] flex items-center gap-1.5">
+                  <MapPin className="h-4 w-4 text-[#5B4BF0]" />
+                  Laptop Location
+                </span>
+                {trackerState.isLocked && lockedReading && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                )}
               </div>
 
-              <select
-                value={selectedClassroomId}
-                onChange={(e) => setSelectedClassroomId(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-2xl bg-white/80 border border-slate-200/80 text-sm font-semibold text-[#1B1640] focus:outline-none focus:ring-2 focus:ring-[#5B4BF0]"
-              >
-                <option value="">No Classroom Geofence (Remote / Disabled)</option>
-                {classrooms.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.building ? `(${c.building})` : ''} - [{c.verification_policy || 'GPS_ONLY'}] Radius: {c.radius_meters}m
-                  </option>
-                ))}
-              </select>
-
-              {selectedClassroomId && (
-                <div className="mt-2.5 p-3 rounded-2xl bg-[#E8EEFB]/80 border border-[#C5D5F6] text-xs text-[#1B1640] flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="font-bold text-[#1B1640]">
-                      Policy: {classrooms.find((c) => c.id === selectedClassroomId)?.verification_policy || 'GPS_ONLY'}
-                    </span>
-                    <p className="text-[#5B6190] text-[11px]">
-                      Geofence: ≤{classrooms.find((c) => c.id === selectedClassroomId)?.radius_meters}m radius, GPS accuracy ≤{classrooms.find((c) => c.id === selectedClassroomId)?.max_accuracy_meters}m.
-                    </p>
-                  </div>
-                  <span className="clay-chip clay-chip-lavender text-[10px]">
-                    Enforced
-                  </span>
+              {!trackerState.isLocked || !lockedReading ? (
+                <div className="space-y-2">
+                  {trackerState.error || trackerState.permissionDenied || trackerState.timeoutOccurred ? (
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center justify-between">
+                      <span>{trackerState.error || 'Unable to capture laptop location.'}</span>
+                      <button
+                        type="button"
+                        onClick={() => laptopTracker.relock()}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-[11px] hover:bg-rose-700 ml-2 shrink-0 cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-[#5B6190] py-1">
+                      <RefreshCw className="h-4 w-4 text-[#5B4BF0] animate-spin" />
+                      <span className="font-semibold">Locating laptop...</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-[#1B1640]">
+                  <p className="font-semibold text-[#1B1640]">
+                    Laptop location locked: {lockedReading.lat.toFixed(6)}, {lockedReading.lng.toFixed(6)}
+                  </p>
                 </div>
               )}
             </div>
@@ -435,235 +634,325 @@ export default function FacultyDashboard() {
             {/* Big primary Start Session */}
             <button
               onClick={handleCreateSession}
-              disabled={loading || isCustomInvalid}
-              className="w-full py-4 px-6 clay-btn clay-btn-primary text-base font-extrabold rounded-full"
+              disabled={loading || isCustomInvalid || !trackerState.isLocked || !lockedReading || subjects.length === 0 || !selectedSubjectId}
+              className="w-full py-4 px-6 clay-btn clay-btn-primary text-base font-extrabold rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Play className="h-5 w-5 mr-2 fill-current" />
               {loading ? 'Creating session...' : 'Start Session'}
             </button>
           </div>
-        </div>
-      </main>
 
-      {/* Multi-subject picker modal */}
-      {showSubjectPicker && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="clay-card max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          {/* Right Column: My Subjects Card */}
+          <div className="lg:col-span-5 clay-card p-6 sm:p-8 space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
               <div>
-                <h3 className="text-lg font-extrabold text-[#1B1640]">Select Subject History</h3>
-                <p className="text-xs font-semibold text-[#5B5F8A]">Choose a subject to view attendance records</p>
-              </div>
-              <button
-                onClick={() => setShowSubjectPicker(false)}
-                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-2.5">
-              {subjects.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => {
-                    setShowSubjectPicker(false);
-                    navigate(`/subjects/${s.id}/history`);
-                  }}
-                  className="w-full text-left p-4 rounded-2xl clay-card-flat hover:scale-[1.01] transition-transform flex items-center justify-between group"
-                >
-                  <div>
-                    <span className="clay-chip clay-chip-pressed text-[10px] mb-1">
-                      {s.code}
-                    </span>
-                    <p className="font-extrabold text-sm text-[#1B1640] mt-1">{s.name}</p>
-                  </div>
-                  <span className="text-xs text-[#5B4BF0] font-extrabold group-hover:translate-x-1 transition-transform">
-                    View &rarr;
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Classroom Modal */}
-      {showAddClassroomModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="clay-card max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
-              <div>
-                <h3 className="text-lg font-extrabold text-[#1B1640]">Register New Classroom Geofence</h3>
-                <p className="text-xs font-semibold text-[#5B5F8A]">Define geographic boundary & verification policy</p>
+                <h3 className="text-lg font-extrabold text-[#1B1640] tracking-tight">My Subjects</h3>
+                <p className="text-xs font-semibold text-[#5B5F8A] mt-0.5">Manage your courses & sessions</p>
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddClassroomModal(false)}
-                className="p-1.5 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600 transition-colors"
+                onClick={handleOpenAddModal}
+                className="px-3.5 py-2 rounded-full clay-btn clay-btn-primary text-xs font-extrabold flex items-center gap-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Subject
+              </button>
+            </div>
+
+            {/* Subject List */}
+            <div className="space-y-3">
+              {subjects.length === 0 ? (
+                <div className="py-8 text-center text-xs text-[#5B5F8A] font-semibold space-y-2">
+                  <BookOpen className="h-8 w-8 mx-auto text-[#5B4BF0]/40" />
+                  <p>No subjects added yet.</p>
+                  <p className="text-[11px] text-[#5B5F8A]/80">Click "Add Subject" above to create your first subject.</p>
+                </div>
+              ) : (
+                subjects.map((sub) => (
+                  <div
+                    key={sub.id}
+                    className="p-4 rounded-2xl clay-card-flat flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="clay-chip clay-chip-pressed text-[10px] font-mono font-black">
+                          {sub.code}
+                        </span>
+                        <span className="text-[11px] font-bold text-[#5B5F8A]">
+                          {sub.session_count} {sub.session_count === 1 ? 'session' : 'sessions'}
+                        </span>
+                      </div>
+                      <p className="text-sm font-extrabold text-[#1B1640] truncate">
+                        {sub.name}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/subjects/${sub.id}/history`)}
+                        className="px-2.5 py-1.5 rounded-full clay-chip clay-chip-selectable text-[11px] font-bold text-[#5B4BF0]"
+                        title="View history"
+                      >
+                        History
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenRenameModal(sub)}
+                        className="p-1.5 rounded-full hover:bg-slate-200/60 text-[#5B5F8A] hover:text-[#1B1640] transition-colors"
+                        title="Rename subject"
+                        aria-label={`Rename ${sub.code}`}
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDeleteModal(sub)}
+                        className="p-1.5 rounded-full hover:bg-rose-100 text-[#5B5F8A] hover:text-[#F43F5E] transition-colors"
+                        title="Delete subject"
+                        aria-label={`Delete ${sub.code}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Add Subject Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#1B1640]">Add Subject</h3>
+                <p className="text-xs font-semibold text-[#5B5F8A] mt-0.5">Enter subject code and name</p>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="p-1.5 rounded-full hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {classroomError && (
-              <div className="clay-chip-danger px-3 py-2 rounded-2xl text-xs font-bold w-full">
-                {classroomError}
+            {addError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{addError}</span>
               </div>
             )}
 
-            <form onSubmit={handleAddClassroom} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label-clay block mb-1">Classroom / Hall Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Hall A, CS Lab 102"
-                    value={newRoomName}
-                    onChange={(e) => setNewRoomName(e.target.value)}
-                    className="clay-input text-xs w-full px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="label-clay block mb-1">Building / Wing</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Science Block"
-                    value={newBuilding}
-                    onChange={(e) => setNewBuilding(e.target.value)}
-                    className="clay-input text-xs w-full px-3 py-2"
-                  />
-                </div>
-              </div>
-
-              <div className="clay-card-flat p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold text-[#1B1640] flex items-center gap-1.5">
-                    <MapPin className="h-4 w-4 text-[#5B4BF0]" /> Coordinates (WGS84 GPS)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={getCurrentLocation}
-                    disabled={locatingDevice}
-                    className="clay-btn clay-btn-secondary px-3 py-1 text-xs rounded-full disabled:opacity-50"
-                  >
-                    {locatingDevice ? 'Locating...' : 'Use Current Device GPS'}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">Latitude *</label>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      placeholder="12.971598"
-                      value={newLat}
-                      onChange={(e) => setNewLat(e.target.value)}
-                      className="clay-input text-xs w-full px-3 py-2 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">Longitude *</label>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      placeholder="77.594566"
-                      value={newLon}
-                      onChange={(e) => setNewLon(e.target.value)}
-                      className="clay-input text-xs w-full px-3 py-2 font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label-clay block mb-1">Geofence Radius (meters)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={5000}
-                    value={newRadius}
-                    onChange={(e) => setNewRadius(e.target.value)}
-                    className="clay-input text-xs w-full px-3 py-2 font-mono"
-                  />
-                  <span className="text-[10px] text-[#5B5F8A] font-semibold">Default: 100 meters</span>
-                </div>
-                <div>
-                  <label className="label-clay block mb-1">Max GPS Accuracy (meters)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={newAccuracy}
-                    onChange={(e) => setNewAccuracy(e.target.value)}
-                    className="clay-input text-xs w-full px-3 py-2 font-mono"
-                  />
-                  <span className="text-[10px] text-[#5B5F8A] font-semibold">Default: 30 meters</span>
-                </div>
+            <form onSubmit={handleSubmitAddSubject} className="space-y-4">
+              <div>
+                <label className="label-clay block mb-1.5">
+                  SUBJECT CODE
+                </label>
+                <input
+                  type="text"
+                  maxLength={12}
+                  placeholder="e.g. DAA, CS201"
+                  value={addCode}
+                  onChange={(e) => {
+                    setAddCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                    setAddError('');
+                  }}
+                  className="w-full px-4 py-2.5 clay-input text-sm font-mono font-bold uppercase"
+                  autoFocus
+                />
+                <p className="text-[11px] font-semibold text-[#5B5F8A] mt-1">2-12 letters and digits only</p>
               </div>
 
               <div>
-                <label className="label-clay block mb-1">Presence Verification Policy</label>
-                <select
-                  value={newPolicy}
-                  onChange={(e) => setNewPolicy(e.target.value as any)}
-                  className="clay-input text-xs w-full px-3 py-2"
-                >
-                  <option value="GPS_ONLY">GPS Geofencing Only (Standard)</option>
-                  <option value="GPS_OR_WIFI">GPS Geofence OR Approved Wi-Fi (Recommended for indoor reliability)</option>
-                  <option value="GPS_AND_WIFI">Both GPS AND Approved Wi-Fi Required (High security)</option>
-                  <option value="WIFI_ONLY">Approved Wi-Fi AP Only (e.g. Basements without GPS reception)</option>
-                </select>
+                <label className="label-clay block mb-1.5">
+                  SUBJECT NAME
+                </label>
+                <input
+                  type="text"
+                  maxLength={80}
+                  placeholder="e.g. Design & Analysis of Algorithms"
+                  value={addName}
+                  onChange={(e) => {
+                    setAddName(e.target.value);
+                    setAddError('');
+                  }}
+                  className="w-full px-4 py-2.5 clay-input text-sm font-bold"
+                />
+                <p className="text-[11px] font-semibold text-[#5B5F8A] mt-1">2-80 characters</p>
               </div>
 
-              <div className="clay-card-flat p-3.5 space-y-2">
-                <span className="text-xs font-extrabold text-[#1B1640]">Optional: Register Approved Wi-Fi Access Point</span>
-                <p className="text-[11px] text-[#5B5F8A] font-medium">Never store or expose router passwords. Register radio hardware BSSIDs.</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">BSSID (MAC Address)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 00:14:22:01:23:45"
-                      value={newBssid}
-                      onChange={(e) => setNewBssid(e.target.value)}
-                      className="clay-input text-xs w-full px-3 py-1.5 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#5B5F8A] block mb-0.5">SSID Network Name</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Campus-Secure"
-                      value={newSsid}
-                      onChange={(e) => setNewSsid(e.target.value)}
-                      className="clay-input text-xs w-full px-3 py-1.5"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddClassroomModal(false)}
-                  className="px-4 py-2 clay-btn clay-btn-secondary text-xs rounded-full"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 clay-btn clay-btn-secondary text-xs rounded-full font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={savingClassroom}
-                  className="px-5 py-2 clay-btn clay-btn-primary text-xs font-extrabold rounded-full disabled:opacity-50"
+                  disabled={isAdding}
+                  className="px-5 py-2 clay-btn clay-btn-primary text-xs rounded-full font-extrabold disabled:opacity-50"
                 >
-                  {savingClassroom ? 'Saving...' : 'Save Classroom'}
+                  {isAdding ? 'Adding...' : 'Add Subject'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Subject Modal */}
+      {editingSubject && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#1B1640]">Rename Subject</h3>
+                <p className="text-xs font-semibold text-[#5B5F8A] mt-0.5">{editingSubject.code}</p>
+              </div>
+              <button
+                onClick={() => setEditingSubject(null)}
+                className="p-1.5 rounded-full hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitRenameSubject} className="space-y-4">
+              <div>
+                <label className="label-clay block mb-1.5">
+                  NEW SUBJECT NAME
+                </label>
+                <input
+                  type="text"
+                  maxLength={80}
+                  value={editName}
+                  onChange={(e) => {
+                    setEditName(e.target.value);
+                    setEditError('');
+                  }}
+                  className="w-full px-4 py-2.5 clay-input text-sm font-bold"
+                  autoFocus
+                />
+                <p className="text-[11px] font-semibold text-[#5B5F8A] mt-1">2-80 characters</p>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingSubject(null)}
+                  className="px-4 py-2 clay-btn clay-btn-secondary text-xs rounded-full font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditing}
+                  className="px-5 py-2 clay-btn clay-btn-primary text-xs rounded-full font-extrabold disabled:opacity-50"
+                >
+                  {isEditing ? 'Saving...' : 'Save Name'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Subject Confirmation Modal */}
+      {deletingSubject && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="clay-card max-w-md w-full p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#1B1640]">
+                    {deletingSubject.session_count === 0 ? `Delete ${deletingSubject.code}?` : `Delete ${deletingSubject.code}`}
+                  </h3>
+                  <p className="text-xs font-semibold text-[#5B5F8A]">{deletingSubject.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeletingSubject(null)}
+                className="p-1.5 rounded-full hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            {deletingSubject.session_count > 0 ? (
+              <div className="space-y-4">
+                <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-1">
+                  <p className="font-extrabold">
+                    This permanently deletes {deletingSubject.session_count} {deletingSubject.session_count === 1 ? 'session' : 'sessions'} and all attendance records for {deletingSubject.code}. Students will lose this subject.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="label-clay block mb-1.5">
+                    TYPE <span className="font-mono text-rose-600">{deletingSubject.code}</span> TO CONFIRM
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={`Type ${deletingSubject.code}`}
+                    value={deleteConfirmCode}
+                    onChange={(e) => {
+                      setDeleteConfirmCode(e.target.value);
+                      setDeleteError('');
+                    }}
+                    className="w-full px-4 py-2.5 clay-input text-sm font-mono font-bold uppercase"
+                    autoFocus
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs font-semibold text-[#5B5F8A]">
+                Are you sure you want to delete this subject? It has no recorded sessions.
+              </p>
+            )}
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingSubject(null)}
+                className="px-4 py-2 clay-btn clay-btn-secondary text-xs rounded-full font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteSubject}
+                disabled={
+                  isDeleting ||
+                  (deletingSubject.session_count > 0 &&
+                    deleteConfirmCode.trim().toUpperCase() !== deletingSubject.code.toUpperCase())
+                }
+                className="px-5 py-2 clay-btn clay-btn-danger text-xs rounded-full font-extrabold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

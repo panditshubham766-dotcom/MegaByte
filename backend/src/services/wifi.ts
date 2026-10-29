@@ -260,73 +260,24 @@ export function evaluateCombinedPresence(
     const gpsPassed = gpsResult.valid;
     const wifiPassed = wifiResult.verified;
 
-    switch (policy) {
-        case 'GPS_ONLY':
-            return {
-                passed: gpsPassed,
-                policy,
-                gpsPassed,
-                wifiPassed,
-                primaryMethod: gpsPassed ? 'GPS' : 'NONE',
-                error: gpsPassed ? undefined : gpsResult.error
-            };
-
-        case 'WIFI_ONLY':
-            return {
-                passed: wifiPassed,
-                policy,
-                gpsPassed,
-                wifiPassed,
-                primaryMethod: wifiPassed ? 'WIFI' : 'NONE',
-                error: wifiPassed ? undefined : wifiResult.error
-            };
-
-        case 'GPS_OR_WIFI':
-            if (gpsPassed && wifiPassed) {
-                return { passed: true, policy, gpsPassed, wifiPassed, primaryMethod: 'BOTH' };
-            }
-            if (gpsPassed) {
-                return { passed: true, policy, gpsPassed, wifiPassed, primaryMethod: 'GPS' };
-            }
-            if (wifiPassed) {
-                return { passed: true, policy, gpsPassed, wifiPassed, primaryMethod: 'WIFI' };
-            }
-            // Both failed
-            return {
-                passed: false,
-                policy,
-                gpsPassed: false,
-                wifiPassed: false,
-                primaryMethod: 'NONE',
-                error: {
-                    code: 'PRESENCE_CHECK_FAILED',
-                    message: `Classroom presence verification failed: ${gpsResult.error?.message || 'Outside GPS geofence'} AND ${wifiResult.error?.message || 'Not connected to classroom Wi-Fi'}.`,
-                    retryHint: 'Move inside the classroom and connect to the classroom Wi-Fi network, then try again.'
-                }
-            };
-
-        case 'GPS_AND_WIFI':
-            if (gpsPassed && wifiPassed) {
-                return { passed: true, policy, gpsPassed: true, wifiPassed: true, primaryMethod: 'BOTH' };
-            }
-            if (!gpsPassed) {
-                return {
-                    passed: false,
-                    policy,
-                    gpsPassed: false,
-                    wifiPassed,
-                    primaryMethod: 'NONE',
-                    error: gpsResult.error
-                };
-            }
-            // GPS passed but Wi-Fi failed
-            return {
-                passed: false,
-                policy,
-                gpsPassed: true,
-                wifiPassed: false,
-                primaryMethod: 'NONE',
-                error: wifiResult.error
-            };
+    // Policy: the check is GPS distance only.
+    // Remove any GPS_OR_WIFI / Wi-Fi / IP / SSID fallback or OR-logic that can pass a student whose GPS distance fails.
+    if (!gpsPassed) {
+        return {
+            passed: false,
+            policy: 'GPS_ONLY',
+            gpsPassed: false,
+            wifiPassed,
+            primaryMethod: 'NONE',
+            error: gpsResult.error
+        };
     }
+
+    return {
+        passed: true,
+        policy: 'GPS_ONLY',
+        gpsPassed: true,
+        wifiPassed,
+        primaryMethod: 'GPS'
+    };
 }
